@@ -35,6 +35,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('product', ProductController::class)->names([
         'index' => 'products.index'
     ]);
+
+    Route::post('/products/quick-create', [ProductController::class, 'quickCreate'])
+        ->name('products.quickCreate');
+
+    Route::post('/products/import', [ProductController::class, 'import'])
+        ->name('products.import');
 });
 
 // Carga el resto de las rutas de autenticación (como el POST de login, logout, etc.)

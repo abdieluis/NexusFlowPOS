@@ -156,13 +156,13 @@ const updateTheme = () => {
                 <p
                     class="text-[10px] font-bold text-amber-500 uppercase tracking-wider"
                 >
-                    Tienda n.° 402
+                    Tienda León Gto.
                 </p>
 
                 <p
                     class="text-xs text-slate-500 dark:text-slate-400 font-medium"
                 >
-                    Secretario: J. Doe
+                    Usuario:
                 </p>
 
             </div>

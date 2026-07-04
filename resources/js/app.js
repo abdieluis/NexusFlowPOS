@@ -1,20 +1,13 @@
 import '../css/app.css';
 import './bootstrap';
-
 import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createApp, h } from 'vue';
-
 import { ZiggyVue } from '../../vendor/tightenco/ziggy';
-
-/* PRIMEVUE */
 import PrimeVue from 'primevue/config';
-
-/* TEMA PRIMEVUE V4 */
 import Aura from '@primeuix/themes/aura';
-
-/* ICONOS */
 import 'primeicons/primeicons.css';
+import ToastService from 'primevue/toastservice';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -34,9 +27,7 @@ createInertiaApp({
         })
 
             .use(plugin)
-
             .use(ZiggyVue)
-
             .use(PrimeVue, {
                 theme: {
                     preset: Aura,
@@ -48,7 +39,7 @@ createInertiaApp({
                     }
                 }
             })
-
+            .use(ToastService)
             .mount(el);
     },
 

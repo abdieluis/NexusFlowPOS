@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\Category;
 use App\Models\Sale;
 use App\Models\Inventory;
 use Illuminate\Support\Facades\DB;
@@ -18,9 +19,7 @@ class PosController extends Controller
     public function index()
     {
         $todaySales = Sale::whereDate('created_at', today())->sum('total');
-
         $transactions = Sale::whereDate('created_at', today())->count();
-
         $customers = Customer::count();
 
         $lowStock = Inventory::join(
@@ -29,12 +28,12 @@ class PosController extends Controller
             '=',
             'products.id'
         )
-        ->whereColumn(
-            'inventories.stock',
-            '<=',
-            'products.stock_alert'
-        )
+        ->whereColumn('inventories.stock', '<=', 'products.stock_alert')
         ->count();
+
+        $products = Product::with(['category'])->get();
+
+        $categories = Category::all();
 
         return Inertia::render('Pos/Dashboard', [
             'stats' => [
@@ -42,7 +41,10 @@ class PosController extends Controller
                 'transactions' => $transactions,
                 'customers'    => $customers,
                 'lowStock'     => $lowStock,
-            ]
+            ],
+
+            'products' => $products,
+            'categories' => $categories,
         ]);
     }
 

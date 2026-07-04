@@ -9,6 +9,9 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
+use App\Imports\ProductsImport;
+use Maatwebsite\Excel\Facades\Excel;
+
 class ProductController extends Controller
 {
     /**
@@ -106,9 +109,13 @@ class ProductController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(string $id)
+    public function edit(Product $product)
     {
-        //
+        return inertia('Products/Edit', [
+            'product' => $product,
+            'categories' => Category::all(),
+            'taxes' => Tax::all(),
+        ]);
     }
 
     /**
@@ -117,24 +124,22 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $request->validate([
-            'name' => 'required|max:255',
-            'sku' => 'required|unique:products,sku,' . $product->id,
+            'name' => 'required|string|max:255',
             'price' => 'required|numeric|min:0',
+            'category_id' => 'nullable|exists:categories,id',
+            'barcode' => 'nullable|string',
         ]);
 
         $product->update([
             'name' => $request->name,
-            'slug' => Str::slug($request->name),
-            'sku' => $request->sku,
-            'barcode' => $request->barcode,
-            'description' => $request->description,
-            'cost' => $request->cost ?? 0,
             'price' => $request->price,
-            'wholesale_price' => $request->wholesale_price ?? 0,
-            'stock_alert' => $request->stock_alert ?? 0,
+            'category_id' => $request->category_id,
+            'barcode' => $request->barcode,
         ]);
 
-        return back()->with('success', 'Producto actualizado');
+        return redirect()
+            ->route('products.index')
+            ->with('success', 'Producto actualizado correctamente');
     }
 
     /**
@@ -145,5 +150,68 @@ class ProductController extends Controller
         $product->delete();
 
         return back()->with('success', 'Producto eliminado');
+    }
+
+    public function quickCreate(Request $request)
+    {
+        $request->validate([
+            'barcode' => 'required|string',
+        ]);
+
+        $businessId = auth()->user()->business_id;
+
+        $product = Product::firstOrCreate(
+            [
+                'barcode' => $request->barcode,
+                'business_id' => $businessId,
+            ],
+            [
+                'name' => $request->name ?? 'Producto sin nombre',
+                'sku' => $request->barcode,
+                'price' => $request->price ?? 0,
+                'stock' => 1,
+                'category_id' => $request->category_id ?? null,
+                'business_id' => $businessId,
+            ]
+        );
+        return response()->json($product);
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls,csv,txt'
+        ]);
+
+        $import = new ProductsImport;
+
+        try {
+            Excel::import($import, $request->file('file'));
+
+            // Leer los errores acumulados por el importador (tanto duplicados como de SQL)
+            if (method_exists($import, 'errors') && $import->errors()->isNotEmpty()) {
+                $errorMessages = [];
+                foreach ($import->errors() as $failure) {
+                    $errorMessages = array_merge($errorMessages, $failure->errors());
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'errors' => $errorMessages
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Productos importados correctamente.'
+            ]);
+
+        } catch (\Throwable $e) {
+            // Cualquier error masivo que rompa el archivo por completo (ej: archivo corrupto)
+            return response()->json([
+                'success' => false,
+                'errors' => ['No se pudo procesar el archivo: ' . $e->getMessage()]
+            ], 500);
+        }
     }
 }
