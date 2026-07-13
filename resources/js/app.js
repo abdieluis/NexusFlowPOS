@@ -8,8 +8,11 @@ import PrimeVue from 'primevue/config';
 import Aura from '@primeuix/themes/aura';
 import 'primeicons/primeicons.css';
 import ToastService from 'primevue/toastservice';
+import ConfirmationService from 'primevue/confirmationservice';
+import { createPinia } from 'pinia';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+const pinia = createPinia();
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
@@ -27,6 +30,7 @@ createInertiaApp({
         })
 
             .use(plugin)
+            .use(pinia)
             .use(ZiggyVue)
             .use(PrimeVue, {
                 theme: {
@@ -40,6 +44,7 @@ createInertiaApp({
                 }
             })
             .use(ToastService)
+            .use(ConfirmationService)
             .mount(el);
     },
 

@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Imports\ProductsImport;
 use Maatwebsite\Excel\Facades\Excel;
+use App\Services\OpenFoodFactsService;
 
 class ProductController extends Controller
 {
@@ -53,49 +54,68 @@ class ProductController extends Controller
     public function store(Request $request)
     {
         $request->validate([
+
             'category_id' => 'required|exists:categories,id',
-            'name'        => 'required|max:255',
-            'sku'         => 'required|max:255|unique:products,sku',
-            'price'       => 'required|numeric|min:0',
-            'image'       => 'nullable|image|max:2048',
+            'name' => 'required|max:255',
+            'sku' => 'required|max:255|unique:products,sku',
+            'price' => 'required|numeric|min:0',
+            'image' => 'nullable|string|max:1000',
+
         ]);
 
-        // 1. Crear producto SIN imagen primero
+        $price = (float) $request->price;
+        $cost = $request->filled('cost')
+            ? (float) $request->cost
+            : round($price / 1.16, 2);
+
         $product = Product::create([
-            'business_id' => 1,
+
+            'business_id' => auth()->user()->business_id,
             'category_id' => $request->category_id,
-            'name'        => $request->name,
-            'slug'        => Str::slug($request->name),
-            'sku'         => $request->sku,
-            'price'       => $request->price,
-            'image'       => null, // aún no
+            'tax_id' => 1,
+            'name' => $request->name,
+            'brand' => $request->brand,
+            'slug' => Str::slug($request->name),
+            'sku' => $request->sku,
+            'barcode' => $request->barcode,
+            'description' => $request->description,
+            'cost' => $cost,
+            'price' => $price,
+            'wholesale_price' => $request->wholesale_price ?? 0,
+            'stock_alert' => $request->stock_alert ?? 0,
+            'track_stock' => $request->track_stock ?? true,
+            'has_variants' => $request->has_variants ?? false,
+            'status' => $request->status ?? true,
+            'image' => $request->image,
+
         ]);
 
-        $imagePath = null;
 
-        // 2. Guardar imagen después de tener ID
-        if ($request->hasFile('image')) {
+        /*
+        |--------------------------------------------------------------------------
+        | Si viene desde Vue/Axios regresamos JSON
+        |--------------------------------------------------------------------------
+        */
 
-            $category = Category::find($request->category_id);
+        if ($request->expectsJson()) {
 
-            $folder = 'products/'
-                . Str::slug($category->name)
-                . '/' . $product->id;
-
-            $file = $request->file('image');
-
-            // nombre: nombreproducto_id.jpg
-            $filename = Str::slug($request->name) . '_' . $product->id . '.' . $file->getClientOriginalExtension();
-
-            $imagePath = $file->storeAs($folder, $filename, 'public');
-
-            // actualizar producto con imagen
-            $product->update([
-                'image' => $imagePath
-            ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Producto creado correctamente.',
+                'product' => $product->load('category')
+            ], 201);
         }
 
-        return redirect()->back()->with('success', 'Producto creado correctamente');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Si viene del formulario tradicional Inertia
+        |--------------------------------------------------------------------------
+        */
+
+        // return redirect()
+        //     ->back()
+        //     ->with('success', 'Producto creado correctamente');
     }
 
     /**
@@ -152,30 +172,6 @@ class ProductController extends Controller
         return back()->with('success', 'Producto eliminado');
     }
 
-    public function quickCreate(Request $request)
-    {
-        $request->validate([
-            'barcode' => 'required|string',
-        ]);
-
-        $businessId = auth()->user()->business_id;
-
-        $product = Product::firstOrCreate(
-            [
-                'barcode' => $request->barcode,
-                'business_id' => $businessId,
-            ],
-            [
-                'name' => $request->name ?? 'Producto sin nombre',
-                'sku' => $request->barcode,
-                'price' => $request->price ?? 0,
-                'stock' => 1,
-                'category_id' => $request->category_id ?? null,
-                'business_id' => $businessId,
-            ]
-        );
-        return response()->json($product);
-    }
 
     public function import(Request $request)
     {
@@ -213,5 +209,14 @@ class ProductController extends Controller
                 'errors' => ['No se pudo procesar el archivo: ' . $e->getMessage()]
             ], 500);
         }
+    }
+
+    public function searchBarcode(Request $request)
+    {
+        $service = new OpenFoodFactsService();
+
+        return response()->json(
+            $service->search($request->barcode)
+        );
     }
 }

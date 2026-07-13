@@ -10,6 +10,7 @@ import { ref } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
+import axios from "axios";
 
 const props = defineProps({
     categories: Array,
@@ -17,6 +18,68 @@ const props = defineProps({
 });
 
 const submitted = ref(false);
+const searchingBarcode = ref(false);
+
+const searchBarcode = async () => {
+    if (!productForm.barcode) {
+        return;
+    }
+
+    searchingBarcode.value = true;
+
+    try {
+
+        const { data } = await axios.get(
+            route('products.barcode.search'),
+            {
+                params: {
+                    barcode: productForm.barcode
+                }
+            }
+        );
+
+        console.log("Respuesta API:", data);
+
+        productForm.name = data.name ?? "";
+        productForm.brand = data.brand ?? "";
+        productForm.image = data.image ?? "";
+        productForm.category_id = data.category_id ?? null;
+
+    } catch (error) {
+
+        console.log(error);
+
+    } finally {
+
+        searchingBarcode.value = false;
+
+    }
+};
+
+// const searchBarcode = async () => {
+//     if (!productForm.barcode) {
+//         return;
+//     }
+//     searchingBarcode.value = true;
+//     try {
+//         const { data } = await axios.get(
+//             route('products.barcode.search'),
+//             {
+//                 params: {
+//                     barcode: productForm.barcode
+//                 }
+//             }
+//         );
+//         productForm.name = data.name;
+//         productForm.brand = data.brand;
+//         productForm.image = data.image;
+//         productForm.category_id = data.category_id;
+//     } catch (error) {
+//         console.log(error);
+//     } finally {
+//         searchingBarcode.value = false;
+//     }
+// };
 
 const productForm = useForm({
     business_id: 1,
@@ -27,6 +90,7 @@ const productForm = useForm({
     barcode: '',
 
     name: '',
+    brand: '',
     slug: '',
 
     description: '',
@@ -149,6 +213,28 @@ const goToIndex = () => {
                             </small>
                         </div>
 
+                        <!-- MARCA -->
+                        <div>
+                            <FloatLabel variant="on">
+                                <InputText
+                                    id="brand"
+                                    v-model="productForm.brand"
+                                    class="w-full"
+                                />
+
+                                <label for="brand">
+                                    Marca
+                                </label>
+                            </FloatLabel>
+
+                            <small
+                                v-if="productForm.errors.brand"
+                                class="text-red-500 block mt-1"
+                            >
+                                {{ productForm.errors.brand }}
+                            </small>
+                        </div>
+
                         <!-- SKU -->
                         <div>
                             <FloatLabel variant="on">
@@ -169,7 +255,7 @@ const goToIndex = () => {
                         </div>
 
                         <!-- BARCODE -->
-                        <div>
+                        <!-- <div>
                             <FloatLabel variant="on">
                                 <InputText
                                     id="barcode"
@@ -186,6 +272,43 @@ const goToIndex = () => {
                             >
                                 El Código de barras es obliatorio
                             </small>
+                        </div> -->
+                        <div>
+                            <!-- <FloatLabel variant="on">
+                                <div class="flex gap-2">
+                                    <InputText
+                                        id="barcode"
+                                        v-model="productForm.barcode"
+                                        class="w-full"
+                                        autofocus
+                                    />
+
+                                    <Button
+                                        type="button"
+                                        icon="pi pi-search"
+                                        severity="info"
+                                        outlined
+                                        :loading="searchingBarcode"
+                                        @click="searchBarcode"
+                                    />
+                                </div>
+
+                                <label for="barcode">Código de barras</label>
+                            </FloatLabel>
+
+                            <small
+                                v-if="productForm.errors.barcode"
+                                class="text-red-500 block mt-1"
+                            >
+                                {{ productForm.errors.barcode }}
+                            </small> -->
+                            <InputText
+                                id="barcode"
+                                v-model="productForm.barcode"
+                                class="w-full"
+                                autofocus
+                                @keyup.enter="searchBarcode"
+                            />
                         </div>
 
                         <!-- SLUG -->
@@ -374,6 +497,16 @@ const goToIndex = () => {
                             >
                                 {{ productForm.errors.image }}
                             </small>
+                        </div>
+
+                        <div
+                            v-if="productForm.image"
+                            class="mt-3"
+                        >
+                            <img
+                                :src="productForm.image"
+                                class="w-32 h-32 rounded-xl object-contain border"
+                            />
                         </div>
 
                     </div>

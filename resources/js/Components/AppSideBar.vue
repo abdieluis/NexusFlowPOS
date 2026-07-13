@@ -1,6 +1,9 @@
 <script setup>
 import AppMenu from '@/Layouts/AppMenu.vue';
 import { router } from '@inertiajs/vue3';
+import { usePosStore } from '@/stores/pos';
+
+const pos = usePosStore();
 
 defineProps({
     collapsed: Boolean
@@ -144,26 +147,22 @@ const logout = () => {
             <!-- NEW TRANSACTION -->
 
             <button
+                @click="pos.createTransaction()"
                 class="
                     w-full
                     flex
                     items-center
                     justify-center
                     gap-2
-
                     bg-emerald-800
                     hover:bg-emerald-900
-
                     text-white
                     font-bold
-
                     py-2
                     px-3
-
                     rounded-xl
                     text-xs
                     shadow-xs
-
                     transition-colors
                 "
             >

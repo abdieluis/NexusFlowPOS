@@ -36,11 +36,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
         'index' => 'products.index'
     ]);
 
-    Route::post('/products/quick-create', [ProductController::class, 'quickCreate'])
-        ->name('products.quickCreate');
+    // Route::post('/products/quick-create', [ProductController::class, 'quickCreate'])
+    //     ->name('products.quickCreate');
 
     Route::post('/products/import', [ProductController::class, 'import'])
         ->name('products.import');
+
+    Route::get('/products/search-barcode',[ProductController::class, 'searchBarcode'])
+        ->name('products.barcode.search');
 });
 
 // Carga el resto de las rutas de autenticación (como el POST de login, logout, etc.)

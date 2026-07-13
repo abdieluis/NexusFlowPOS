@@ -14,4 +14,9 @@ class Category extends Model
         'name',
         'description',
     ];
+
+    public function sources()
+    {
+        return $this->hasMany(CategorySource::class);
+    }
 }
