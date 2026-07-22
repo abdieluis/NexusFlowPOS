@@ -31,7 +31,7 @@ class Product extends Model
 
     public function inventories()
     {
-        return $this->hasMany(Inventory::class);
+        return $this->hasMany(Inventory::class, 'product_id');
     }
 
     public function category()

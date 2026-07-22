@@ -36,13 +36,10 @@ const submit = () => {
 
             <div class="relative z-10 my-auto max-w-xl">
                 <div class="flex items-center gap-3 mb-6">
-                    <div class="grid grid-cols-2 gap-0.5 w-7 h-7 border-2 border-white p-0.5 rounded">
-                        <div class="bg-white"></div>
-                        <div class="bg-white"></div>
-                        <div class="bg-white"></div>
-                        <div class="bg-white"></div>
-                    </div>
-                    <span class="text-3xl font-bold tracking-tight">NexusFlow POS</span>
+                    <i class="pi pi-shop text-4xl"></i>
+                    <span class="text-3xl font-bold tracking-tight">
+                        NexusFlow POS
+                    </span>
                 </div>
 
                 <p class="text-emerald-100 text-base md:text-lg leading-relaxed mb-12">
@@ -57,7 +54,7 @@ const submit = () => {
                     <div>
                         <p class="text-emerald-300 font-medium uppercase tracking-wider text-xs mb-1">Estatus</p>
                         <p class="flex items-center gap-2 text-emerald-50">
-                            <span class="w-2.5 h-2.5 rounded-full bg-green-400 inline-block animate-pulse"></span>
+                            <i class="pi pi-circle-fill text-green-400 text-[10px] animate-pulse"></i>
                             Conectado
                         </p>
                     </div>
@@ -82,9 +79,9 @@ const submit = () => {
                         </label>
                         <div class="relative">
                             <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                                </svg>
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+                                    <i class="pi pi-user text-lg"></i>
+                                </span>
                             </span>
                             <input
                                 id="username"
@@ -103,15 +100,12 @@ const submit = () => {
                             <label for="password" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider">
                                 Contraseña
                             </label>
-                            <a href="#" class="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors">
-                                ¿Olvidaste tu contraseña?
-                            </a>
                         </div>
                         <div class="relative">
                             <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-                                </svg>
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-gray-400">
+                                    <i class="pi pi-lock text-lg"></i>
+                                </span>
                             </span>
                             <input
                                 id="password"
@@ -126,11 +120,18 @@ const submit = () => {
                                 @click="togglePasswordVisibility"
                                 class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 hover:text-gray-600"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                                </svg>
+                                <i
+                                    :class="passwordFieldType === 'password'
+                                        ? 'pi pi-eye'
+                                        : 'pi pi-eye-slash'"
+                                    class="text-lg"
+                                ></i>
                             </button>
+                        </div>
+                        <div class="flex justify-between items-center mb-2">
+                            <a href="#" class="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors">
+                                ¿Olvidaste tu contraseña?
+                            </a>
                         </div>
                         <span v-if="form.errors.password" class="text-xs text-red-600 mt-1 block">{{ form.errors.password }}</span>
                     </div>
@@ -149,9 +150,7 @@ const submit = () => {
                         class="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2.5 px-4 rounded-lg shadow transition-colors duration-200 disabled:opacity-50 text-sm"
                     >
                         <span>Iniciar sesión</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                        </svg>
+                        <i class="pi pi-arrow-right"></i>
                     </button>
                 </form>
 
@@ -160,16 +159,13 @@ const submit = () => {
                     <div class="relative flex justify-center text-xs uppercase"></div>
                 </div>
 
-                <button
+                <!-- <button
                     type="button"
                     class="w-full flex items-center justify-center gap-2 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 font-medium py-2.5 px-4 rounded-lg shadow-sm transition-colors duration-200 text-sm"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5 text-gray-500">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.875 12h.75m0 0h.75m-1.5 0v.75m0-.75v-.75M13.5 13.5h.75v.75h-.75v-.75Zm.75 2.25h.75v.75h-.75v-.75Zm-3 0h.75v.75h-.75v-.75Zm1.5 1.5h.75v.75h-.75v-.75Zm-.75 1.5h.75v.75h-.75v-.75Zm-1.5-3h.75v.75h-.75v-.75Zm3-1.5h.75v.75h-.75v-.75Zm1.5 1.5h.75v.75h-.75v-.75Z" />
-                    </svg>
+                    <i class="pi pi-credit-card text-lg text-gray-500"></i>
                     <span>Inicio de sesión rápido con insignia</span>
-                </button>
+                </button> -->
 
                 <p class="text-center text-xs text-gray-400 mt-6 max-w-xs mx-auto leading-normal">
                     Protegido mediante el cifrado de punto final NexusFlow Secure™. El acceso no autorizado está estrictamente prohibido.

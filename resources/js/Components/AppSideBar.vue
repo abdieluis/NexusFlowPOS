@@ -146,7 +146,7 @@ const logout = () => {
 
             <!-- NEW TRANSACTION -->
 
-            <button
+            <!-- <button
                 @click="pos.createTransaction()"
                 class="
                     w-full
@@ -167,28 +167,13 @@ const logout = () => {
                 "
             >
 
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke-width="2.5"
-                    stroke="currentColor"
-                    class="w-4 h-4"
-                >
-
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M12 4.5v15m7.5-7.5h-15"
-                    />
-
-                </svg>
+                <i class="pi pi-plus text-xs"></i>
 
                 <span v-if="!collapsed">
                     Nueva Transacción
                 </span>
 
-            </button>
+            </button> -->
 
 
             <!-- LINKS -->
@@ -227,7 +212,7 @@ const logout = () => {
                     ]"
                 >
 
-                    <span>⚙️</span>
+                    <i class="pi pi-cog text-sm"></i>
 
                     <span v-if="!collapsed">
                         Configuración
@@ -271,7 +256,7 @@ const logout = () => {
                     ]"
                 >
 
-                    <span>🚪</span>
+                    <i class="pi pi-sign-out text-sm"></i>
 
                     <span v-if="!collapsed">
                         Cerrar Sesión

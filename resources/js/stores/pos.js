@@ -3,6 +3,8 @@ import { ref } from 'vue';
 
 export const usePosStore = defineStore('pos', () => {
 
+    const search = ref('');
+
     const transactions = ref([
         {
             id: 1,
@@ -58,6 +60,8 @@ export const usePosStore = defineStore('pos', () => {
     return {
         transactions,
         currentTransactionId,
+        nextTransactionNumber,
+        search,
         createTransaction,
         deleteTransaction
     };

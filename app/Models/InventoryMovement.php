@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Inventory extends Model
+class InventoryMovement extends Model
 {
     use SoftDeletes;
 
@@ -13,26 +13,29 @@ class Inventory extends Model
         'branch_id',
         'product_id',
         'variant_id',
-        'stock',
+        'type',
+        'quantity',
+        'reference_type',
+        'reference_id',
+        'notes',
+        'created_by'
     ];
+
 
     public function product()
     {
         return $this->belongsTo(Product::class);
     }
 
+
     public function branch()
     {
-        return $this->belongsTo(Branch::class, 'branch_id');
+        return $this->belongsTo(Branch::class);
     }
+
 
     public function variant()
     {
-        return $this->belongsTo(ProductVariant::class, 'variant_id');
-    }
-
-    public function movements()
-    {
-        return $this->hasMany(InventoryMovement::class, 'product_id', 'product_id');
+        return $this->belongsTo(ProductVariant::class,'variant_id');
     }
 }

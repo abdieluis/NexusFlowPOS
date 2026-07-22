@@ -615,3 +615,25 @@ const goToIndex = () => {
 
     </AppLayout>
 </template>
+
+
+<!-- 1. 📦 Controlar inventario (track_stock)
+Determina si el sistema debe rastrear las existencias físicamente de este producto.
+
+Marcado (True): Cada vez que vendes este producto, el sistema resta unidades automáticamente de la tabla inventories. Si se termina, el POS te bloqueará la venta o mostrará una alerta de "Agotado".
+
+Desmarcado (False): Ideal para servicios (ej. Corte de cabello, Reparación), productos intangibles o insumos con stock ilimitado/no medible. Puedes venderlo N veces en la caja sin que el sistema valide o reste cantidades.
+
+2. 🎨 Tiene variantes (has_variants)
+Indica si el producto no es único, sino que se divide en presentaciones o atributos (talla, color, sabor, tamaño).
+
+Marcado (True): Le indica al sistema que este registro es solo una "familia" o "cabecera" y que las existencias y precios reales están divididos en una subtabla de variantes (ej. Shampoo Head & Shoulders - 375ml, 700ml, 1L). Al cobrar en caja, el sistema te pedirá elegir cuál variante específica estás vendiendo.
+
+Desmarcado (False): Es un producto simple estándar. Su stock y precio aplican de forma única directa (como lo tienes actualmente).
+
+3. 🟢 Activo (status)
+Determina la visibilidad operacional del producto en tu sistema.
+
+Marcado (True): El producto está habilitado para buscarse en el Punto de Venta (caja), aparece en catálogos y se puede incluir en compras/ventas.
+
+Desmarcado (False): Se oculta en la caja de cobro para evitar que los cajeros lo vendan (útil cuando descontinúas un producto o dejas de manejarlo temporalmente), pero sin borrar el historial de ventas pasadas ni romper reportes financieros. -->

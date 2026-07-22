@@ -67,12 +67,12 @@ const filteredProducts = computed(() => {
 });
 
 const editProduct = (product) => {
-    router.visit(route('product.edit', product.id))
+    router.visit(route('products.edit', product.id))
 }
 
 const deleteProduct = (id) => {
     if (confirm('¿Eliminar este producto?')) {
-        router.delete(route('product.destroy', id))
+        router.delete(route('products.destroy', id))
     }
 }
 

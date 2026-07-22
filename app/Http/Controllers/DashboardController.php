@@ -16,48 +16,7 @@ class DashboardController extends Controller
      */
     public function index()
     {
-        $todaySales = Sale::whereDate('created_at', today())
-            ->sum('total');
-
-        $transactions = Sale::whereDate('created_at', today())
-            ->count();
-
-        $customers = Customer::count();
-
-        $lowStock = Product::whereColumn('stock', '<=', 'minimum_stock')
-            ->count();
-
-        $recentSales = Sale::latest()
-            ->take(5)
-            ->get();
-
-        $lowStockProducts = Product::whereColumn('stock', '<=', 'minimum_stock')
-            ->take(5)
-            ->get();
-
-        $weeklySales = Sale::select(
-                DB::raw('DATE(created_at) as date'),
-                DB::raw('SUM(total) as total')
-            )
-            ->groupBy('date')
-            ->orderBy('date')
-            ->take(7)
-            ->get();
-
-        return Inertia::render('Dashboard', [
-            'stats' => [
-                'todaySales' => $todaySales,
-                'transactions' => $transactions,
-                'customers' => $customers,
-                'lowStock' => $lowStock,
-            ],
-
-            'recentSales' => $recentSales,
-
-            'lowStockProducts' => $lowStockProducts,
-
-            'weeklySales' => $weeklySales,
-        ]);
+        return Inertia::render('Dashboard');
     }
 
     /**

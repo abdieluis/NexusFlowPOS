@@ -35,7 +35,7 @@ class PosController extends Controller
 
         $categories = Category::all();
 
-        return Inertia::render('Pos/Dashboard', [
+        return Inertia::render('Pos/Index', [
             'stats' => [
                 'todaySales'   => $todaySales,
                 'transactions' => $transactions,

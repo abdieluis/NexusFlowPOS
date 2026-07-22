@@ -38,6 +38,7 @@ const lastKeyTime = ref(Date.now());
 const isCreating = ref(false);
 const showQuickCreateModal = ref(false);
 const pendingBarcode = ref(null);
+const searchText = ref('');
 
 // const transactions = ref([
 //     {
@@ -86,12 +87,39 @@ const quickForm = ref({
 });
 
 // --- FILTRADO DE PRODUCTOS ---
+// const filteredProducts = computed(() => {
+//     const products = productsList.value ?? [];
+
+//     if (!selectedCategory.value) return products;
+
+//     return products.filter(p => p.category_id === selectedCategory.value);
+// });
 const filteredProducts = computed(() => {
-    const products = productsList.value ?? [];
 
-    if (!selectedCategory.value) return products;
+    let products = productsList.value ?? [];
 
-    return products.filter(p => p.category_id === selectedCategory.value);
+
+    // Categoría
+    if (selectedCategory.value) {
+        products = products.filter(
+            p => p.category_id === selectedCategory.value
+        );
+    }
+
+    // Texto
+    if (pos.search.trim()) {
+
+        const search = pos.search.toLowerCase();
+
+        products = products.filter(product =>
+            product.name?.toLowerCase().includes(search) ||
+            product.sku?.toLowerCase().includes(search) ||
+            product.barcode?.toLowerCase().includes(search) ||
+            product.brand?.toLowerCase().includes(search)
+        );
+    }
+    return products;
+
 });
 
 // --- CÁLCULOS DEL CARRITO (SUBTOTAL, IVA, TOTAL) ---
@@ -416,45 +444,6 @@ const createProductFromBarcode = async () => {
 
 };
 
-// const createProductFromBarcode = async () => {
-//     try {
-//         const { data } = await axios.post(route('products.store'), quickForm.value);
-
-//         const exists = productsList.value.some(p => p.id === data.id);
-
-//         if (!exists) {
-//             productsList.value.unshift(data);
-//         }
-
-//         addToCart(data);
-
-//         showQuickCreateModal.value = false;
-
-//         quickForm.value = {
-//             barcode: barcode,
-//             sku: barcode,
-//             name: '',
-//             brand: '',
-//             description: '',
-//             image: '',
-//             price: 0,
-//             category_id: null
-//         };
-//     }
-//     catch(error){
-
-//     console.error(
-//         "Error creando producto:",
-//         error.response?.data
-//     );
-
-// }
-    // catch (error) {
-    //     console.error('Error creando producto rápido:', error);
-    // }
-// };
-
-
 watch(showQuickCreateModal, async (open) => {
     if (open) {
         await nextTick();
@@ -475,6 +464,110 @@ onUnmounted(() => {
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 };
+
+const printTicket = () => {
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Ticket</title>
+        <style>
+            body{
+                font-family: monospace;
+                width:80mm;
+                margin:0;
+                padding:10px;
+                font-size:12px;
+            }
+            h2{
+                text-align:center;
+                margin:0;
+            }
+            .center{
+                text-align:center;
+            }
+            table{
+                width:100%;
+                border-collapse:collapse;
+            }
+            td{
+                padding:2px 0;
+            }
+            .total{
+                font-size:16px;
+                font-weight:bold;
+                border-top:1px dashed #000;
+                margin-top:8px;
+                padding-top:8px;
+            }
+            hr{
+                border:none;
+                border-top:1px dashed #000;
+                margin:8px 0;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>MI TIENDA</h2>
+        <div class="center">
+            RFC XXXXXXXX <br>
+            Tel. 123456789
+        </div>
+        <hr>
+        <div>
+            Fecha: ${new Date().toLocaleString()}
+        </div>
+        <hr>
+        <table>
+            ${cart.value.map(item=>`
+                <tr>
+                    <td colspan="2">${item.name}</td>
+                </tr>
+                <tr>
+                    <td>
+                        ${item.quantity} x ${formatCurrency(item.price)}
+                    </td>
+                    <td style="text-align:right">
+                        ${formatCurrency(item.price * item.quantity)}
+                    </td>
+                </tr>
+            `).join('')}
+        </table>
+        <hr>
+        <table>
+            <tr>
+                <td>Subtotal</td>
+                <td style="text-align:right">
+                    ${formatCurrency(subtotal.value)}
+                </td>
+            </tr>
+            <tr>
+                <td>IVA</td>
+                <td style="text-align:right">
+                    ${formatCurrency(totalTax.value)}
+                </td>
+            </tr>
+        </table>
+        <div class="total">
+            TOTAL: ${formatCurrency(amountDue.value)}
+        </div>
+        <hr>
+        <div class="center">
+            ¡Gracias por su compra!
+        </div>
+    </body>
+    </html>
+    `;
+
+    const ventana = window.open('', '_blank');
+    ventana.document.write(html);
+    ventana.document.close();
+    ventana.focus();
+    ventana.print();
+    ventana.close();
+
+}
 </script>
 
 <template>
@@ -684,9 +777,11 @@ const formatCurrency = (value) => {
                         name="fade-slide"
                         mode="out-in"
                     >
-                        <div :key="currentTransactionId">
+                        <div
+                            :key="pos.currentTransactionId"
+                            class="flex-1 flex flex-col min-h-0"
+                        >
 
-                            <!-- carrito -->
                             <div class="flex-1 overflow-y-auto p-5 space-y-3">
 
                                 <div
@@ -808,6 +903,7 @@ const formatCurrency = (value) => {
                         </div>
 
                         <button
+                            @click="printTicket"
                             class="w-full bg-emerald-600 hover:bg-emerald-700
                             text-white font-bold py-4 rounded-xl
                             flex items-center justify-center gap-3

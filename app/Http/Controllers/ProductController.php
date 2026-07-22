@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Storage;
 use App\Imports\ProductsImport;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Services\OpenFoodFactsService;
+use App\Models\Inventory;
+use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
@@ -25,7 +27,7 @@ class ProductController extends Controller
             ->get();
 
         return Inertia::render('Products/Index', [
-            'products' => $products
+            'products' => $products,
         ]);
     }
 
@@ -131,10 +133,13 @@ class ProductController extends Controller
      */
     public function edit(Product $product)
     {
+        // Cargamos los inventarios del producto con sus respectivas sucursales
+        $product->load(['inventories.branch']);
+
         return inertia('Products/Edit', [
-            'product' => $product,
+            'product'    => $product,
             'categories' => Category::all(),
-            'taxes' => Tax::all(),
+            'taxes'      => Tax::all(),
         ]);
     }
 
@@ -143,72 +148,67 @@ class ProductController extends Controller
      */
     public function update(Request $request, Product $product)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'price' => 'required|numeric|min:0',
-            'category_id' => 'nullable|exists:categories,id',
-            'barcode' => 'nullable|string',
+        // 1. Validar campos
+        $validated = $request->validate([
+            'category_id'     => 'required|exists:categories,id',
+            'tax_id'          => 'nullable|exists:taxes,id',
+            'sku'             => 'required|string|max:100|unique:products,sku,' . $product->id,
+            'barcode'         => 'nullable|string|max:100|unique:products,barcode,' . $product->id,
+            'name'            => 'required|string|max:255',
+            'slug'            => 'required|string|max:255|unique:products,slug,' . $product->id,
+            'description'     => 'nullable|string',
+            'image'           => 'nullable|string',
+            'cost'            => 'required|numeric|min:0',
+            'price'           => 'required|numeric|min:0',
+            'wholesale_price' => 'nullable|numeric|min:0',
+            'add_stock'       => 'nullable|integer|min:0',
+            'stock_alert'     => 'nullable|integer|min:0',
+            'track_stock'     => 'boolean',
+            'has_variants'    => 'boolean',
+            'status'          => 'boolean',
         ]);
 
-        $product->update([
-            'name' => $request->name,
-            'price' => $request->price,
-            'category_id' => $request->category_id,
-            'barcode' => $request->barcode,
-        ]);
+        // 2. Operación Atómica
+        DB::transaction(function () use ($product, $validated) {
 
-        return redirect()
-            ->route('products.index')
-            ->with('success', 'Producto actualizado correctamente');
-    }
+            $quantityToAdd = $validated['add_stock'] ?? 0;
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Product $product)
-    {
-        $product->delete();
+            // Si se envió una cantidad mayor a 0 para agregar stock
+            if ($quantityToAdd > 0) {
+                $branchId = auth()->user()->branch_id ?? 1;
 
-        return back()->with('success', 'Producto eliminado');
-    }
+                // 1. Busca el registro existente o crea uno nuevo con stock inicial en 0
+                $inventory = Inventory::firstOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'branch_id'  => $branchId,
+                    ],
+                    [
+                        'stock'     => 0,
+                        'type'      => 'in',
+                        'reference' => 'Ajuste manual desde edición de producto',
+                        'user_id'   => auth()->id(),
+                    ]
+                );
 
+                // 2. Suma la nueva cantidad al stock existente en esa sucursal
+                $inventory->increment('stock', $quantityToAdd);
 
-    public function import(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv,txt'
-        ]);
-
-        $import = new ProductsImport;
-
-        try {
-            Excel::import($import, $request->file('file'));
-
-            // Leer los errores acumulados por el importador (tanto duplicados como de SQL)
-            if (method_exists($import, 'errors') && $import->errors()->isNotEmpty()) {
-                $errorMessages = [];
-                foreach ($import->errors() as $failure) {
-                    $errorMessages = array_merge($errorMessages, $failure->errors());
-                }
-
-                return response()->json([
-                    'success' => false,
-                    'errors' => $errorMessages
+                // Opcional: Actualizar el usuario o la referencia del último movimiento
+                $inventory->update([
+                    'user_id'   => auth()->id(),
+                    'reference' => 'Ajuste manual desde edición de producto',
                 ]);
             }
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Productos importados correctamente.'
-            ]);
+            // Actualizamos el resto de campos del producto (excluyendo add_stock)
+            unset($validated['add_stock']);
+            $product->update($validated);
+        });
 
-        } catch (\Throwable $e) {
-            // Cualquier error masivo que rompa el archivo por completo (ej: archivo corrupto)
-            return response()->json([
-                'success' => false,
-                'errors' => ['No se pudo procesar el archivo: ' . $e->getMessage()]
-            ], 500);
-        }
+        $product->load('inventories');
+
+        return redirect()->back()->with('success', 'Producto e inventario actualizados correctamente.');
     }
 
     public function searchBarcode(Request $request)

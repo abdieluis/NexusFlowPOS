@@ -9,6 +9,10 @@ const sidebarCollapsed = ref(false);
 const toggleSidebar = () => {
     sidebarCollapsed.value = !sidebarCollapsed.value;
 };
+
+const searchProducts = (value) => {
+    searchText.value = value;
+};
 </script>
 
 <template>
@@ -48,8 +52,8 @@ const toggleSidebar = () => {
             <!-- TOPBAR -->
 
             <AppTopBar
-                :collapsed="sidebarCollapsed"
                 @toggle-sidebar="toggleSidebar"
+                @search="searchProducts"
             />
 
 
