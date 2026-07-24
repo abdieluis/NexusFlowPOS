@@ -8,13 +8,15 @@ import axios from 'axios'
 import Dialog from 'primevue/dialog'
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
+import ConfirmDialog from 'primevue/confirmdialog';
+import { useConfirm } from 'primevue/useconfirm';
 
 const props = defineProps({
     products: Array
 });
 
 const toast = useToast();
-
+const confirm = useConfirm();
 const file = ref(null)
 const loading = ref(false)
 const progress = ref(0)
@@ -25,7 +27,7 @@ const showImport = ref(false)
 const activeCategory = ref('Todos');
 
 const openNewProduct = () => {
-    router.visit(route('product.create'))
+    router.visit(route('products.create'))
 }
 
 const categories = computed(() => {
@@ -71,9 +73,36 @@ const editProduct = (product) => {
 }
 
 const deleteProduct = (id) => {
-    if (confirm('¿Eliminar este producto?')) {
-        router.delete(route('products.destroy', id))
-    }
+    confirm.require({
+        message: '¿Estás seguro de eliminar este producto?',
+        header: 'Confirmar eliminación',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Sí, eliminar',
+        rejectLabel: 'Cancelar',
+        acceptClass: 'p-button-danger',
+
+        accept: () => {
+            router.delete(route('products.destroy', id), {
+                onSuccess: () => {
+                    toast.add({
+                        severity: 'success',
+                        summary: 'Producto eliminado',
+                        detail: 'El producto fue eliminado correctamente.',
+                        life: 3000
+                    });
+                }
+            });
+        },
+
+        reject: () => {
+            toast.add({
+                severity: 'info',
+                summary: 'Cancelado',
+                detail: 'No se eliminó el producto.',
+                life: 2000
+            });
+        }
+    });
 }
 
 const resetImport = () => {
@@ -177,7 +206,7 @@ const submitImport = async () => {
 
         <div class="flex min-h-screen">
             <Toast />
-
+            <ConfirmDialog />
             <!-- SIDEBAR INTERNO DE CATEGORÍAS -->
 
             <aside

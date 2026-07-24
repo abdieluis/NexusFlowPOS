@@ -80,48 +80,74 @@ class InventoryController extends Controller
     {
         $request->validate([
             'inventory_id' => 'required|exists:inventories,id',
-            'type'         => 'required|in:in,out', // 'in' = entrada, 'out' = salida
+            'type'         => 'required|in:purchase,sale,adjustment,transfer',
             'quantity'     => 'required|numeric|gt:0',
-            'reason'       => 'required|string|max:255', // Compra, Venta, Merma, Ajuste, etc.
+            'reason'       => 'required|string|max:255',
         ]);
 
         DB::transaction(function () use ($request) {
+
             $inventory = Inventory::findOrFail($request->inventory_id);
 
-            // 1. Calcular el nuevo stock
+            // Stock actual antes del movimiento
             $previousStock = $inventory->stock;
             $quantity = $request->quantity;
 
-            if ($request->type === 'in') {
-                $newStock = $previousStock + $quantity;
-            } else {
-                if ($previousStock < $quantity) {
+            // Calcular nuevo stock según tipo de movimiento
+            switch ($request->type) {
+
+                // Movimientos que aumentan inventario
+                case 'purchase':
+                case 'adjustment':
+                    $newStock = $previousStock + $quantity;
+                    break;
+
+
+                // Movimientos que reducen inventario
+                case 'sale':
+                    if ($previousStock < $quantity) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'quantity' => 'El stock actual es insuficiente para realizar esta salida.'
+                        ]);
+                    }
+
+                    $newStock = $previousStock - $quantity;
+                    break;
+
+
+                // Transferencia pendiente de lógica entre sucursales
+                case 'transfer':
+                    $newStock = $previousStock;
+                    break;
+
+
+                default:
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        'quantity' => 'El stock actual es insuficiente para realizar esta salida.'
+                        'type' => 'Tipo de movimiento no válido.'
                     ]);
-                }
-                $newStock = $previousStock - $quantity;
             }
 
-            // 2. Actualizar el stock en la tabla `inventories`
+
+            // Actualizar inventario
             $inventory->update([
                 'stock' => $newStock
             ]);
 
-            // 3. Registrar el movimiento en `inventory_movements`
+
+            // Registrar movimiento
             InventoryMovement::create([
-                'inventory_id'  => $inventory->id,
-                'branch_id'     => $inventory->branch_id,
-                'product_id'    => $inventory->product_id,
-                'variant_id'    => $inventory->variant_id,
-                'user_id'       => auth()->id(), // Usuario que hace el movimiento
-                'type'          => $request->type,
-                'quantity'      => $quantity,
-                'previous_stock'=> $previousStock,
-                'new_stock'     => $newStock,
-                'reason'        => $request->reason,
+                'branch_id'      => $inventory->branch_id,
+                'product_id'     => $inventory->product_id,
+                'variant_id'     => $inventory->variant_id,
+                'type'           => $request->type,
+                'quantity'       => $quantity,
+                'reference_type' => 'inventory',
+                'reference_id'   => $inventory->id,
+                'notes'          => $request->reason,
+                'created_by'     => auth()->id(),
             ]);
         });
+
 
         return redirect()->back()->with('success', 'Movimiento de inventario registrado correctamente.');
     }

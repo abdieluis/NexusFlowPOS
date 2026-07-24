@@ -11,12 +11,17 @@ import { useForm, router } from '@inertiajs/vue3';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
 import axios from "axios";
+import Toast from 'primevue/toast';
+import { useToast } from 'primevue/usetoast';
+import { usePage } from '@inertiajs/vue3';
 
 const props = defineProps({
     categories: Array,
     taxes: Array
 });
 
+const toast = useToast();
+const page = usePage();
 const submitted = ref(false);
 const searchingBarcode = ref(false);
 
@@ -56,52 +61,22 @@ const searchBarcode = async () => {
     }
 };
 
-// const searchBarcode = async () => {
-//     if (!productForm.barcode) {
-//         return;
-//     }
-//     searchingBarcode.value = true;
-//     try {
-//         const { data } = await axios.get(
-//             route('products.barcode.search'),
-//             {
-//                 params: {
-//                     barcode: productForm.barcode
-//                 }
-//             }
-//         );
-//         productForm.name = data.name;
-//         productForm.brand = data.brand;
-//         productForm.image = data.image;
-//         productForm.category_id = data.category_id;
-//     } catch (error) {
-//         console.log(error);
-//     } finally {
-//         searchingBarcode.value = false;
-//     }
-// };
-
 const productForm = useForm({
     business_id: 1,
     category_id: null,
     tax_id: null,
-
     sku: '',
     barcode: '',
-
     name: '',
     brand: '',
     slug: '',
-
     description: '',
     image: '',
-
     cost: 0,
     price: 0,
     wholesale_price: 0,
-
+    stock: 0,
     stock_alert: 0,
-
     track_stock: true,
     has_variants: false,
     status: true
@@ -109,21 +84,42 @@ const productForm = useForm({
 
 const saveProduct = () => {
 
-    productForm.post(route('product.store'), {
+    productForm.post(route('products.store'), {
 
         preserveScroll: true,
 
         onSuccess: () => {
 
+            const successMessage =
+                page.props.flash?.success ??
+                'Producto creado correctamente.';
+
             productForm.reset();
 
-            console.log('Producto guardado');
+            toast.add({
+                severity: 'success',
+                summary: 'Éxito',
+                detail: successMessage,
+                life: 3000
+            });
+
         },
 
         onError: (errors) => {
+
             console.log(errors);
+
+            toast.add({
+                severity: 'error',
+                summary: 'Error de validación',
+                detail: 'Por favor, revisa los campos marcados en rojo.',
+                life: 4000
+            });
+
         }
+
     });
+
 };
 
 const goToIndex = () => {
@@ -133,6 +129,7 @@ const goToIndex = () => {
 
 <template>
     <AppLayout>
+        <Toast />
 
         <div class="flex flex-col min-h-screen p-6">
 
@@ -255,60 +252,17 @@ const goToIndex = () => {
                         </div>
 
                         <!-- BARCODE -->
-                        <!-- <div>
+                        <div>
                             <FloatLabel variant="on">
                                 <InputText
                                     id="barcode"
                                     v-model="productForm.barcode"
                                     class="w-full"
                                     autofocus
+                                    @keyup.enter="searchBarcode"
                                 />
-                                <label for="barcode">Código de barras</label>
+                                <label for="sku">Codigo de Barras</label>
                             </FloatLabel>
-
-                            <small
-                                v-if="productForm.errors.barcode"
-                                class="text-red-500 block mt-1"
-                            >
-                                El Código de barras es obliatorio
-                            </small>
-                        </div> -->
-                        <div>
-                            <!-- <FloatLabel variant="on">
-                                <div class="flex gap-2">
-                                    <InputText
-                                        id="barcode"
-                                        v-model="productForm.barcode"
-                                        class="w-full"
-                                        autofocus
-                                    />
-
-                                    <Button
-                                        type="button"
-                                        icon="pi pi-search"
-                                        severity="info"
-                                        outlined
-                                        :loading="searchingBarcode"
-                                        @click="searchBarcode"
-                                    />
-                                </div>
-
-                                <label for="barcode">Código de barras</label>
-                            </FloatLabel>
-
-                            <small
-                                v-if="productForm.errors.barcode"
-                                class="text-red-500 block mt-1"
-                            >
-                                {{ productForm.errors.barcode }}
-                            </small> -->
-                            <InputText
-                                id="barcode"
-                                v-model="productForm.barcode"
-                                class="w-full"
-                                autofocus
-                                @keyup.enter="searchBarcode"
-                            />
                         </div>
 
                         <!-- SLUG -->
@@ -458,6 +412,27 @@ const goToIndex = () => {
                                 class="text-red-500 block mt-1"
                             >
                                 {{ productForm.errors.wholesale_price }}
+                            </small>
+                        </div>
+
+                        <!-- STOCK INICIAL -->
+                        <div>
+                            <FloatLabel variant="on">
+                                <InputNumber
+                                    id="stock"
+                                    v-model="productForm.stock"
+                                    class="w-full"
+                                    :min="0"
+                                    showButtons
+                                />
+                                <label for="stock">Stock Inicial</label>
+                            </FloatLabel>
+
+                            <small
+                                v-if="productForm.errors.stock"
+                                class="text-red-500 block mt-1"
+                            >
+                                {{ productForm.errors.stock }}
                             </small>
                         </div>
 

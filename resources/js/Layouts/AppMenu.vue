@@ -15,41 +15,65 @@ const menuItems = computed(() => [
         active: currentPath === '/pos',
         icon: 'pi pi-shopping-cart'
     },
-
+    {
+        label: 'Caja y Turnos',
+        href: '/cash-registers',
+        active: currentPath.startsWith('/cash-registers') || currentPath.startsWith('/cash-cuts'),
+        icon: 'pi pi-wallet'
+    },
+    {
+        label: 'Productos',
+        href: '/products',
+        active: currentPath.startsWith('/products') || currentPath.startsWith('/categories'),
+        icon: 'pi pi-tags'
+    },
     {
         label: 'Inventario',
         href: '/inventories',
-        active: currentPath === '/inventories',
+        active: currentPath.startsWith('/inventories'),
         icon: 'pi pi-box'
     },
-
+    {
+        label: 'Compras',
+        href: '/purchases',
+        active: currentPath.startsWith('/purchases'),
+        icon: 'pi pi-truck'
+    },
+    {
+        label: 'Proveedores',
+        href: '/suppliers',
+        active: currentPath.startsWith('/suppliers'),
+        icon: 'pi pi-building'
+    },
+    {
+        label: 'Clientes',
+        href: '/customers',
+        active: currentPath === '/customers',
+        icon: 'pi pi-users'
+    },
+    {
+        label: 'Devoluciones',
+        href: '/returns',
+        active: currentPath.startsWith('/returns'),
+        icon: 'pi pi-refresh'
+    },
     {
         label: 'Analíticas',
         href: '/pos/analytics',
         active: currentPath === '/pos/analytics',
         icon: 'pi pi-chart-bar'
     },
-
     {
-        label: 'Catálogo',
-        href: '/pos/catalog',
-        active: currentPath === '/pos/catalog',
-        icon: 'pi pi-book'
-    },
-
-    {
-        label: 'Productos',
-        href: '/products',
-        active: currentPath.startsWith('/products'),
-        icon: 'pi pi-tags'
+        label: 'Usuarios y Permisos',
+        href: '/users',
+        active: currentPath.startsWith('/users') || currentPath.startsWith('/roles'),
+        icon: 'pi pi-user-plus'
     }
 ]);
 </script>
 
 <template>
-
     <nav class="space-y-2">
-
         <Link
             v-for="item in menuItems"
             :key="item.label"
@@ -90,17 +114,13 @@ const menuItems = computed(() => [
                     `
             ]"
         >
-
             <!-- ACTIVE INDICATOR -->
-
             <div
                 v-if="item.active && !collapsed"
                 class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-white"
             ></div>
 
-
             <!-- ICON -->
-
             <div
                 :class="[
                     `
@@ -125,9 +145,7 @@ const menuItems = computed(() => [
                 ></i>
             </div>
 
-
             <!-- LABEL -->
-
             <Transition
                 enter-active-class="transition duration-200 ease-out"
                 enter-from-class="opacity-0 -translate-x-2"
@@ -136,18 +154,13 @@ const menuItems = computed(() => [
                 leave-from-class="opacity-100 translate-x-0"
                 leave-to-class="opacity-0 -translate-x-2"
             >
-
                 <span
                     v-if="!collapsed"
                     class="whitespace-nowrap font-semibold tracking-tight"
                 >
                     {{ item.label }}
                 </span>
-
             </Transition>
-
         </Link>
-
     </nav>
-
 </template>

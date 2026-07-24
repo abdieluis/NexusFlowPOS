@@ -12,15 +12,25 @@ class Sale extends Model
     protected $table = 'sales';
 
     protected $fillable = [
+        'business_id',
         'branch_id',
-        'customer_id',
+        'cash_register_id',
         'user_id',
+        'customer_id',
         'subtotal',
-        'tax',
         'discount',
+        'tax',
         'total',
+        'paid',
+        'change_amount',
+        'payment_status',
         'status',
-        'payment_method',
-        'reference',
+        'sold_at',
     ];
+
+
+    public function items()
+    {
+        return $this->hasMany(SaleItem::class);
+    }
 }

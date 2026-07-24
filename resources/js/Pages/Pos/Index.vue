@@ -23,13 +23,20 @@ const props = defineProps({
     products: {
         type: Array,
         default: () => []
+    },
+    customers: {
+        type: Array,
+        default: () => []
+    },
+    activeRegister: {
+        type: Object,
+        default: null
     }
 });
 
 const confirm = useConfirm();
 
 const productsList = ref([...props.products]);
-
 // --- ESTADOS REACTIVOS ---
 const selectedCategory = ref(null); // null significa "All Items"
 // const cart = ref([]);
@@ -39,24 +46,14 @@ const isCreating = ref(false);
 const showQuickCreateModal = ref(false);
 const pendingBarcode = ref(null);
 const searchText = ref('');
-
-// const transactions = ref([
-//     {
-//         id: 1,
-//         number: 1,
-//         cart: []
-//     }
-// ]);
-
+const paid = ref(null);
+const selectedCustomer = ref(1);
 const nextTransactionNumber = ref(2);
-// const currentTransactionId = ref(1);
 const pos = usePosStore();
+const paymentMethod = ref('cash');
 
-// const currentTransaction = computed(() => {
-//     return pos.transactions.find(
-//         t => t.id === currentTransactionId.value
-//     );
-// });
+// Variable que nos dirá si la caja está abierta (true / false)
+const isRegisterOpen = computed(() => !!props.activeRegister);
 
 const currentTransaction = computed(() => {
     return pos.transactions.find(
@@ -67,13 +64,6 @@ const currentTransaction = computed(() => {
 const cart = computed(() => {
     return currentTransaction.value?.cart ?? [];
 });
-
-// const quickForm = ref({
-//     barcode: '',
-//     name: '',
-//     price: 0,
-//     category_id: null
-// });
 
 const quickForm = ref({
     barcode: '',
@@ -87,13 +77,6 @@ const quickForm = ref({
 });
 
 // --- FILTRADO DE PRODUCTOS ---
-// const filteredProducts = computed(() => {
-//     const products = productsList.value ?? [];
-
-//     if (!selectedCategory.value) return products;
-
-//     return products.filter(p => p.category_id === selectedCategory.value);
-// });
 const filteredProducts = computed(() => {
 
     let products = productsList.value ?? [];
@@ -163,7 +146,6 @@ const updateQuantity = (productId, change) => {
 
     item.quantity += change;
 
-    // Si la cantidad llega a 0 o menos, lo removemos del carrito
     if (item.quantity <= 0) {
         currentTransaction.value.cart =
             currentTransaction.value.cart.filter(
@@ -173,21 +155,11 @@ const updateQuantity = (productId, change) => {
 };
 
 const clearCart = () => {
-    currentTransaction.value.cart = [];
+    if (currentTransaction.value) {
+        currentTransaction.value.cart = [];
+    }
+    paid.value = null;
 };
-
-// const createTransaction = () => {
-
-//     const id = Date.now();
-
-//     transactions.value.push({
-//         id,
-//         number: nextTransactionNumber.value++,
-//         cart: []
-//     });
-
-//     currentTransactionId.value = id;
-// };
 
 const removeTransaction = (event, id) => {
 
@@ -343,20 +315,6 @@ const handleBarcodeScanner = async (e) => {
 
                 }
             }
-            // else {
-            //     if (isCreating.value) return;
-
-            //     isCreating.value = true;
-
-            //     try {
-            //         quickForm.value.barcode = barcodeBuffer.value;
-
-            //         showQuickCreateModal.value = true;
-
-            //     } finally {
-            //         isCreating.value = false;
-            //     }
-            // }
 
             barcodeBuffer.value = '';
         }
@@ -454,6 +412,12 @@ watch(showQuickCreateModal, async (open) => {
 // --- CICLO DE VIDA ---
 onMounted(() => {
     window.addEventListener('keydown', handleBarcodeScanner);
+    // Seleccionar por defecto "Cliente público general"
+    const defaultCustomer = props.customers.find(c => c.id === 1);
+
+    if (defaultCustomer) {
+        selectedCustomer.value = defaultCustomer.id;
+    }
 });
 
 onUnmounted(() => {
@@ -465,93 +429,223 @@ const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 };
 
-const printTicket = () => {
+// --- FINALIZAR Y REGISTRAR VENTA ---
+const finishSale = async () => {
+
+    if (!isRegisterOpen.value) {
+        toast.add({
+            severity: 'error',
+            summary: 'Caja Cerrada',
+            detail: 'Abre un turno para realizar ventas.',
+            life: 3000
+        });
+        return;
+    }
+
+    if (!canProcessSale.value) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Pago inválido',
+            detail: isGeneralPublic.value
+                ? 'El cliente Público General debe liquidar el total de la compra.'
+                : 'El cliente no cuenta con el crédito disponible para cubrir la diferencia.',
+            life: 4000
+        });
+        return;
+    }
+
+    try {
+        // 1. Guardar la copia de los datos actuales de la venta antes de vaciar
+        const saleData = {
+            items: [...cart.value],
+            subtotal: subtotal.value,
+            tax: totalTax.value,
+            total: amountDue.value,
+            paid: Number(paid.value),
+            change: changeAmount.value,
+            paymentMethod: paymentMethod.value
+        };
+
+        await axios.post(route('pos.store'), {
+            items: saleData.items,
+            subtotal: saleData.subtotal,
+            tax: saleData.tax,
+            total: saleData.total,
+            paid: saleData.paid,
+            change: saleData.change,
+            customer_id: selectedCustomer.value,
+            payment_method: saleData.paymentMethod
+        });
+
+        toast.add({
+            severity: 'success',
+            summary: 'Venta Registrada',
+            detail: 'La venta se ha procesado con éxito.',
+            life: 3000
+        });
+
+        // 2. Mandar a imprimir pasando la copia de los datos
+        printTicket(saleData);
+
+        // 3. Limpiar la interfaz
+        clearCart();
+        paid.value = null;
+        paymentMethod.value = 'cash';
+        selectedCustomer.value = props.customers.find(c => c.id === 1)?.id ?? null;
+
+    } catch (error) {
+        console.error("Error al registrar venta:", error);
+        toast.add({
+            severity: 'error',
+            summary: 'Error en Venta',
+            detail: error.response?.data?.message ?? 'No se pudo completar el registro de la venta.',
+            life: 5000
+        });
+    }
+};
+
+// --- CÁLCULOS Y VALIDACIONES DE PAGO ---
+
+// 1. Calcular el Cambio a entregar
+const changeAmount = computed(() => {
+    if (!paid.value || Number(paid.value) <= 0) return 0;
+    const diff = Number(paid.value) - Number(amountDue.value);
+    return diff > 0 ? diff : 0;
+});
+
+// 2. Calcular Faltante por pagar
+const missingAmount = computed(() => {
+    if (!paid.value) return amountDue.value;
+    const diff = Number(amountDue.value) - Number(paid.value);
+    return diff > 0 ? diff : 0;
+});
+
+// 3. Obtener el objeto del cliente seleccionado
+const selectedCustomerObj = computed(() => {
+    return props.customers.find(c => c.id === selectedCustomer.value) ?? null;
+});
+
+// 4. Validar si es Cliente Público General (asumiendo ID 1)
+const isGeneralPublic = computed(() => {
+    return selectedCustomer.value === 1 || !selectedCustomerObj.value;
+});
+
+// 5. Validar si el cliente tiene crédito suficiente para cubrir el faltante
+const hasEnoughCredit = computed(() => {
+    if (isGeneralPublic.value) return false;
+    const customer = selectedCustomerObj.value;
+    if (!customer || !customer.has_credit) return false;
+
+    // Crédito disponible = Limite de crédito - Deuda actual
+    const availableCredit = Number(customer.credit_limit ?? 0) - Number(customer.current_balance ?? 0);
+    return availableCredit >= missingAmount.value;
+});
+
+// 6. Determinar si se puede procesar la venta
+const canProcessSale = computed(() => {
+    if (cart.value.length === 0) return false;
+    if (!paid.value || Number(paid.value) <= 0) return false;
+
+    // Si el pago cubre el total o más -> Venta válida
+    if (Number(paid.value) >= Number(amountDue.value)) return true;
+
+    // Si el pago es menor pero es cliente con crédito suficiente -> Venta válida
+    if (!isGeneralPublic.value && hasEnoughCredit.value) return true;
+
+    return false;
+});
+
+const printTicket = (saleData) => {
+    const { items, subtotal, tax, total, paid, change, paymentMethod } = saleData;
+
+    // Etiqueta legible del método de pago
+    const methodLabel = {
+        cash: 'Efectivo',
+        card: 'Tarjeta',
+        transfer: 'Transferencia'
+    }[paymentMethod] || paymentMethod;
 
     const html = `
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Ticket</title>
+        <title>Ticket de Venta</title>
         <style>
-            body{
-                font-family: monospace;
-                width:80mm;
-                margin:0;
-                padding:10px;
-                font-size:12px;
+            @page { margin: 0; }
+            body {
+                font-family: 'Courier New', Courier, monospace;
+                width: 78mm;
+                margin: 0;
+                padding: 8px;
+                font-size: 12px;
+                color: #000;
             }
-            h2{
-                text-align:center;
-                margin:0;
-            }
-            .center{
-                text-align:center;
-            }
-            table{
-                width:100%;
-                border-collapse:collapse;
-            }
-            td{
-                padding:2px 0;
-            }
-            .total{
-                font-size:16px;
-                font-weight:bold;
-                border-top:1px dashed #000;
-                margin-top:8px;
-                padding-top:8px;
-            }
-            hr{
-                border:none;
-                border-top:1px dashed #000;
-                margin:8px 0;
-            }
+            .center { text-align: center; }
+            .right { text-align: right; }
+            .bold { font-weight: bold; }
+            h2 { margin: 0; font-size: 16px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+            td { padding: 2px 0; vertical-align: top; }
+            hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+            .total-row { font-size: 14px; font-weight: bold; }
         </style>
     </head>
     <body>
-        <h2>MI TIENDA</h2>
+        <h2>NEXUSFLOW POS</h2>
         <div class="center">
-            RFC XXXXXXXX <br>
-            Tel. 123456789
-        </div>
-        <hr>
-        <div>
-            Fecha: ${new Date().toLocaleString()}
+            Ticket de Venta<br>
+            ${new Date().toLocaleString()}
         </div>
         <hr>
         <table>
-            ${cart.value.map(item=>`
+            <thead>
                 <tr>
-                    <td colspan="2">${item.name}</td>
+                    <td class="bold">Cant x Prod</td>
+                    <td class="right bold">Total</td>
                 </tr>
-                <tr>
-                    <td>
-                        ${item.quantity} x ${formatCurrency(item.price)}
-                    </td>
-                    <td style="text-align:right">
-                        ${formatCurrency(item.price * item.quantity)}
-                    </td>
-                </tr>
-            `).join('')}
+            </thead>
+            <tbody>
+                ${items.map(item => `
+                    <tr>
+                        <td colspan="2">${item.name}</td>
+                    </tr>
+                    <tr>
+                        <td>${item.quantity} x ${formatCurrency(item.price)}</td>
+                        <td class="right">${formatCurrency(item.price * item.quantity)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
         </table>
         <hr>
         <table>
             <tr>
                 <td>Subtotal</td>
-                <td style="text-align:right">
-                    ${formatCurrency(subtotal.value)}
-                </td>
+                <td class="right">${formatCurrency(subtotal)}</td>
             </tr>
             <tr>
                 <td>IVA</td>
-                <td style="text-align:right">
-                    ${formatCurrency(totalTax.value)}
-                </td>
+                <td class="right">${formatCurrency(tax)}</td>
+            </tr>
+            <tr class="total-row">
+                <td>TOTAL</td>
+                <td class="right">${formatCurrency(total)}</td>
             </tr>
         </table>
-        <div class="total">
-            TOTAL: ${formatCurrency(amountDue.value)}
-        </div>
+        <hr>
+        <table>
+            <tr>
+                <td>Método de Pago:</td>
+                <td class="right">${methodLabel}</td>
+            </tr>
+            <tr>
+                <td>Monto Recibido:</td>
+                <td class="right">${formatCurrency(paid)}</td>
+            </tr>
+            <tr>
+                <td class="bold">Cambio:</td>
+                <td class="right bold">${formatCurrency(change)}</td>
+            </tr>
+        </table>
         <hr>
         <div class="center">
             ¡Gracias por su compra!
@@ -560,21 +654,52 @@ const printTicket = () => {
     </html>
     `;
 
-    const ventana = window.open('', '_blank');
-    ventana.document.write(html);
-    ventana.document.close();
-    ventana.focus();
-    ventana.print();
-    ventana.close();
+    // Crear un iframe invisible para mandar a imprimir sin abrir pestañas nuevas
+    let iframe = document.getElementById('print-iframe');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'print-iframe';
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+    }
 
-}
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    // Invocar la impresión de forma limpia
+    setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+    }, 250);
+};
 </script>
 
 <template>
     <Head title="Punto de Venta" />
-
     <AppLayout>
         <Toast />
+        <div
+            v-if="!isRegisterOpen"
+            class="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-between shadow-sm"
+        >
+            <div class="flex items-center gap-3 font-semibold text-sm">
+                <i class="pi pi-exclamation-triangle text-xl text-amber-500"></i>
+                <span>Atención: No hay una caja abierta actualmente. Debes abrir un turno para poder cobras y realizar ventas.</span>
+            </div>
+            <a
+                href="/cash-registers"
+                class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow"
+            >
+                Abrir Turno
+            </a>
+        </div>
         <div class="flex flex-col lg:flex-row gap-6 h-[calc(100vh-120px)] overflow-hidden">
 
             <div class="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -711,7 +836,7 @@ const printTicket = () => {
 
                                         <!-- Línea verde -->
                                         <span
-                                            v-if="currentTransactionId === transaction.id"
+                                            v-if="pos.currentTransactionId === transaction.id"
                                             class="absolute bottom-0 left-0 w-full h-[3px] bg-emerald-500 rounded-full"
                                         ></span>
 
@@ -722,7 +847,7 @@ const printTicket = () => {
                             </template>
                         </draggable>
 
-                        <TransitionGroup
+                        <!-- <TransitionGroup
                             name="tabs"
                             tag="div"
                             class="flex items-end gap-1"
@@ -733,7 +858,17 @@ const printTicket = () => {
                             >
                                 +
                             </button>
-                        </TransitionGroup>
+                        </TransitionGroup> -->
+                        <div
+                            class="flex items-end gap-1"
+                        >
+                            <button
+                                @click="pos.createTransaction"
+                                class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mb-1 ml-2 bg-slate-200 dark:bg-slate-800 hover:bg-emerald-600 hover:text-white transition"
+                            >
+                                +
+                            </button>
+                        </div>
 
                     </div>
                 </div>
@@ -890,9 +1025,21 @@ const printTicket = () => {
 
                         <div class="grid grid-cols-2 gap-3">
 
-                            <button class="rounded-xl border py-3 font-semibold hover:bg-slate-50">
+                            <button
+                                @click="printTicket({
+                                    items: cart,
+                                    subtotal: subtotal,
+                                    tax: totalTax,
+                                    total: amountDue,
+                                    paid: paid || amountDue,
+                                    change: changeAmount,
+                                    paymentMethod: paymentMethod
+                                })"
+                                :disabled="cart.length === 0"
+                                class="rounded-xl border py-3 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                            >
                                 <i class="pi pi-print"></i>
-                                <span> Imprimir</span>
+                                <span>Imprimir</span>
                             </button>
 
                             <button class="rounded-xl border py-3 font-semibold hover:bg-slate-50">
@@ -902,15 +1049,118 @@ const printTicket = () => {
 
                         </div>
 
-                        <button
-                            @click="printTicket"
-                            class="w-full bg-emerald-600 hover:bg-emerald-700
-                            text-white font-bold py-4 rounded-xl
-                            flex items-center justify-center gap-3
-                            transition-all"
+                        <div>
+                            <label class="text-sm font-semibold">
+                                Cliente
+                            </label>
+
+                            <Select
+                                v-model="selectedCustomer"
+                                :options="props.customers"
+                                optionLabel="name"
+                                optionValue="id"
+                                placeholder="Cliente público general"
+                                class="w-full"
+                                showClear
+                            />
+                        </div>
+
+                        <div>
+                            <label class="text-sm font-semibold">Método de pago</label>
+                            <Select
+                                v-model="paymentMethod"
+                                :options="[
+                                    { label: 'Efectivo', value: 'cash' },
+                                    { label: 'Tarjeta', value: 'card' },
+                                    { label: 'Transferencia', value: 'transfer' }
+                                ]"
+                                optionLabel="label"
+                                optionValue="value"
+                                class="w-full"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="text-sm font-semibold">
+                                Pago recibido
+                            </label>
+
+                            <InputNumber
+                                v-model="paid"
+                                mode="decimal"
+                                :min="0"
+                                :minFractionDigits="2"
+                                :maxFractionDigits="2"
+                                :updateOnInput="true"
+                                @input="(e) => paid = e.value"
+                                class="w-full"
+                                placeholder="0.00"
+                            />
+                        </div>
+                        <!-- DESGLOSE Y ALERTAS EN TIEMPO REAL -->
+                        <div
+                            v-if="paid !== null && paid !== '' && Number(paid) > 0"
+                            class="p-4 rounded-2xl border transition-all mt-3"
+                            :class="{
+                                'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800': Number(paid) >= Number(amountDue),
+                                'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800': Number(paid) < Number(amountDue) && isGeneralPublic,
+                                'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800': Number(paid) < Number(amountDue) && !isGeneralPublic && hasEnoughCredit,
+                                'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800': Number(paid) < Number(amountDue) && !isGeneralPublic && !hasEnoughCredit
+                            }"
                         >
-                            <i class="pi pi-check-circle"></i>
-                            <span>Finalizar venta</span>
+                            <!-- 1. CASO: PAGO MAYOR O IGUAL AL TOTAL -->
+                            <div v-if="Number(paid) >= Number(amountDue)" class="space-y-1 text-sm">
+                                <div class="flex justify-between text-slate-600 dark:text-slate-300">
+                                    <span>Total a cobrar:</span>
+                                    <span class="font-bold">{{ formatCurrency(amountDue) }}</span>
+                                </div>
+                                <div class="flex justify-between text-slate-600 dark:text-slate-300">
+                                    <span>Recibido ({{ paymentMethod === 'cash' ? 'Efectivo' : paymentMethod }}):</span>
+                                    <span class="font-bold">{{ formatCurrency(paid) }}</span>
+                                </div>
+                                <div class="flex justify-between border-t border-emerald-200 dark:border-emerald-800 pt-2 text-emerald-700 dark:text-emerald-400 font-extrabold text-base">
+                                    <span>{{ paymentMethod === 'cash' ? 'Cambio a entregar:' : 'Saldo a favor:' }}</span>
+                                    <span>{{ formatCurrency(changeAmount) }}</span>
+                                </div>
+                            </div>
+
+                            <!-- 2. CASO: PAGO MENOR EN PÚBLICO EN GENERAL -->
+                            <div v-else-if="isGeneralPublic" class="text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                                <div class="flex items-center gap-1 font-bold text-sm">
+                                    <i class="pi pi-exclamation-triangle"></i>
+                                    <span>Pago incompleto</span>
+                                </div>
+                                <p>El cliente <strong>Público en General</strong> no cuenta con crédito. Debe liquidar el total de <strong>{{ formatCurrency(amountDue) }}</strong> (Faltan {{ formatCurrency(missingAmount) }}).</p>
+                            </div>
+
+                            <!-- 3. CASO: PAGO MENOR EN CLIENTE CON CRÉDITO SUFICIENTE -->
+                            <div v-else-if="hasEnoughCredit" class="text-xs text-blue-700 dark:text-blue-400 space-y-1">
+                                <div class="flex items-center gap-1 font-bold text-sm">
+                                    <i class="pi pi-credit-card"></i>
+                                    <span>Venta a Crédito Aprobada</span>
+                                </div>
+                                <p>El cliente pagará {{ formatCurrency(paid) }} y la diferencia de <strong>{{ formatCurrency(missingAmount) }}</strong> se cargará a su cuenta de crédito.</p>
+                            </div>
+
+                            <!-- 4. CASO: PAGO MENOR EN CLIENTE SIN CRÉDITO SUFICIENTE -->
+                            <div v-else class="text-xs text-red-700 dark:text-red-400 space-y-1">
+                                <div class="flex items-center gap-1 font-bold text-sm">
+                                    <i class="pi pi-times-circle"></i>
+                                    <span>Crédito Insuficiente</span>
+                                </div>
+                                <p>Faltan {{ formatCurrency(missingAmount) }} y el cliente no tiene suficiente límite de crédito disponible.</p>
+                            </div>
+                        </div>
+                        <button
+                            @click="finishSale"
+                            :disabled="!canProcessSale"
+                            class="w-full font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all"
+                            :class="canProcessSale
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-md'
+                                : 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-700'"
+                        >
+                            <i :class="canProcessSale ? 'pi pi-check-circle' : 'pi pi-lock'"></i>
+                            <span>{{ canProcessSale ? 'Finalizar venta' : 'Completar datos de pago' }}</span>
                         </button>
 
                     </div>

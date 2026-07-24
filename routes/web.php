@@ -6,6 +6,8 @@ use App\Http\Controllers\PosController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CashRegisterController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [AuthenticatedSessionController::class, 'create'])
@@ -42,6 +44,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('inventories.adjust');
 
     Route::resource('inventories', InventoryController::class);
+
+    // Clientes
+    Route::resource('customers', CustomerController::class);
+
+    // Caja y Turnos
+    Route::resource('cash-registers', CashRegisterController::class);
+    Route::post('/cash-registers/{cashRegister}/open', [CashRegisterController::class, 'openShift'])->name('cash-registers.open');
+    Route::post('/cash-registers/{cashRegister}/movements', [CashRegisterController::class, 'storeMovement'])->name('cash-registers.movements');
+    Route::post('/cash-registers/{cashRegister}/close', [CashRegisterController::class,'closeShift'])->name('cash-registers.close');
 });
 
 // Carga el resto de las rutas de autenticación

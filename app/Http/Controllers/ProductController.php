@@ -14,6 +14,7 @@ use Maatwebsite\Excel\Facades\Excel;
 use App\Services\OpenFoodFactsService;
 use App\Models\Inventory;
 use Illuminate\Support\Facades\DB;
+use App\Models\InventoryMovement;
 
 class ProductController extends Controller
 {
@@ -56,68 +57,85 @@ class ProductController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|max:255',
             'sku' => 'required|max:255|unique:products,sku',
             'price' => 'required|numeric|min:0',
             'image' => 'nullable|string|max:1000',
-
+            'stock' => 'nullable|integer|min:0',
         ]);
 
         $price = (float) $request->price;
+
         $cost = $request->filled('cost')
             ? (float) $request->cost
             : round($price / 1.16, 2);
 
-        $product = Product::create([
+        $product = null;
 
-            'business_id' => auth()->user()->business_id,
-            'category_id' => $request->category_id,
-            'tax_id' => 1,
-            'name' => $request->name,
-            'brand' => $request->brand,
-            'slug' => Str::slug($request->name),
-            'sku' => $request->sku,
-            'barcode' => $request->barcode,
-            'description' => $request->description,
-            'cost' => $cost,
-            'price' => $price,
-            'wholesale_price' => $request->wholesale_price ?? 0,
-            'stock_alert' => $request->stock_alert ?? 0,
-            'track_stock' => $request->track_stock ?? true,
-            'has_variants' => $request->has_variants ?? false,
-            'status' => $request->status ?? true,
-            'image' => $request->image,
+        DB::transaction(function () use ($request, $cost, $price, &$product) {
 
-        ]);
+            $product = Product::create([
+
+                'business_id' => auth()->user()->business_id,
+                'category_id' => $request->category_id,
+                'tax_id' => 1,
+                'name' => $request->name,
+                'brand' => $request->brand,
+                'slug' => Str::slug($request->name),
+                'sku' => $request->sku,
+                'barcode' => $request->barcode,
+                'description' => $request->description,
+                'cost' => $cost,
+                'price' => $price,
+                'wholesale_price' => $request->wholesale_price ?? 0,
+                'stock_alert' => $request->stock_alert ?? 0,
+                'track_stock' => $request->track_stock ?? true,
+                'has_variants' => $request->has_variants ?? false,
+                'status' => $request->status ?? true,
+                'image' => $request->image,
+
+            ]);
+
+            $branchId = auth()->user()->branch_id ?? 1;
+
+            $initialStock = $request->stock ?? 0;
+
+            $inventory = Inventory::firstOrCreate(
+                [
+                    'product_id' => $product->id,
+                    'branch_id' => $branchId,
+                ],
+                [
+                    'variant_id' => null,
+                    'stock' => $initialStock,
+                ]
+            );
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Si viene desde Vue/Axios regresamos JSON
-        |--------------------------------------------------------------------------
-        */
+            // Registrar movimiento solo si hay stock inicial
+            if ($initialStock > 0) {
 
-        if ($request->expectsJson()) {
+                InventoryMovement::create([
+                    'branch_id'      => $branchId,
+                    'product_id'     => $product->id,
+                    'variant_id'     => null,
+                    'type'           => 'purchase',
+                    'quantity'       => $initialStock,
+                    'reference_type' => 'product',
+                    'reference_id'   => $product->id,
+                    'notes'          => 'Stock inicial al crear producto',
+                    'created_by'     => auth()->id(),
+                ]);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Producto creado correctamente.',
-                'product' => $product->load('category')
-            ], 201);
-        }
+            }
+        });
 
+        $product->load('inventories');
 
-        /*
-        |--------------------------------------------------------------------------
-        | Si viene del formulario tradicional Inertia
-        |--------------------------------------------------------------------------
-        */
-
-        // return redirect()
-        //     ->back()
-        //     ->with('success', 'Producto creado correctamente');
+        return redirect()
+            ->route('products.index')
+            ->with('success', 'Producto creado e inventario registrado correctamente.');
     }
 
     /**
@@ -191,13 +209,28 @@ class ProductController extends Controller
                     ]
                 );
 
-                // 2. Suma la nueva cantidad al stock existente en esa sucursal
+                $previousStock = $inventory->stock;
+
+
+                // Actualizar stock
                 $inventory->increment('stock', $quantityToAdd);
 
-                // Opcional: Actualizar el usuario o la referencia del último movimiento
-                $inventory->update([
-                    'user_id'   => auth()->id(),
-                    'reference' => 'Ajuste manual desde edición de producto',
+
+                // Nuevo stock después del incremento
+                $newStock = $inventory->fresh()->stock;
+
+
+                // Registrar movimiento
+                InventoryMovement::create([
+                    'branch_id'      => $branchId,
+                    'product_id'     => $product->id,
+                    'variant_id'     => null,
+                    'type'           => 'adjustment',
+                    'quantity'       => $quantityToAdd,
+                    'reference_type' => 'product',
+                    'reference_id'   => $product->id,
+                    'notes'          => 'Ajuste manual desde edición de producto. Stock anterior: ' . $previousStock . ' Stock nuevo: ' . $newStock,
+                    'created_by'     => auth()->id(),
                 ]);
             }
 
@@ -209,6 +242,15 @@ class ProductController extends Controller
         $product->load('inventories');
 
         return redirect()->back()->with('success', 'Producto e inventario actualizados correctamente.');
+    }
+
+    public function destroy(Product $product)
+    {
+        $product->delete();
+
+        return redirect()
+            ->back()
+            ->with('success', 'Producto eliminado correctamente.');
     }
 
     public function searchBarcode(Request $request)

@@ -3,6 +3,7 @@ import AppLayout from "@/Layouts/AppLayout.vue";
 import { ref } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import { FilterMatchMode } from '@primevue/core/api';
+import Dialog from 'primevue/dialog';
 
 const props = defineProps({
     inventories: Array
@@ -11,24 +12,34 @@ const props = defineProps({
 // Modal de Ajuste de Stock
 const showModal = ref(false);
 const selectedInventory = ref(null);
+const adjustmentType = ref('in');
 
 const form = useForm({
     inventory_id: null,
-    type: 'in',
+    type: 'adjustment',
     quantity: 1,
-    reason: 'Compra / Recepción'
+    reason: 'Ajuste de inventario'
 });
 
 const openAdjustModal = (inventory) => {
+
+    console.log('Inventario seleccionado:', inventory);
+
     selectedInventory.value = inventory;
     form.inventory_id = inventory.id;
     form.type = 'in';
     form.quantity = 1;
     form.reason = 'Compra / Recepción';
+
     showModal.value = true;
+
+    console.log('showModal:', showModal.value);
 };
 
 const submitAdjustment = () => {
+
+    form.type = 'adjustment';
+
     form.post(route('inventories.adjust'), {
         onSuccess: () => {
             showModal.value = false;
@@ -36,7 +47,6 @@ const submitAdjustment = () => {
         }
     });
 };
-
 // Filtros de la Tabla (Manteniendo tus filtros por columna intactos)
 const filters = ref({
     global: {
@@ -278,7 +288,7 @@ const getSeverity = (stock) => {
                 <div class="flex flex-col gap-2">
                     <label class="font-medium">Tipo de Operación</label>
                     <SelectButton
-                        v-model="form.type"
+                        v-model="adjustmentType"
                         :options="[
                             { label: 'Entrada (+)', value: 'in' },
                             { label: 'Salida (-)', value: 'out' }
