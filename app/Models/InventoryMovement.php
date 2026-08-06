@@ -12,7 +12,7 @@ class InventoryMovement extends Model
     protected $fillable = [
         'branch_id',
         'product_id',
-        'variant_id',
+        'product_variant_id',
         'type',
         'quantity',
         'reference_type',
@@ -36,6 +36,6 @@ class InventoryMovement extends Model
 
     public function variant()
     {
-        return $this->belongsTo(ProductVariant::class,'variant_id');
+        return $this->belongsTo(ProductVariant::class,'product_variant_id');
     }
 }

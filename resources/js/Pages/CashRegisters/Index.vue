@@ -6,10 +6,11 @@ import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
 import InputNumber from 'primevue/inputnumber';
 import InputText from 'primevue/inputtext';
-import Select from 'primevue/select'; // O Dropdown según tu versión de PrimeVue (v4/v3)
+import Select from 'primevue/select';
 
 const props = defineProps({
     registers: Array,
+    paymentMethods: Array,
 });
 
 const page = usePage();
@@ -36,11 +37,11 @@ const openForm = useForm({
 
 const movementForm = useForm({
     type: 'expense',
+    payment_method_id: null,
     amount: 0,
     description: '',
 });
 
-// MODIFICADO: Agregamos email_to_send y notes al form
 const closeForm = useForm({
     real_cash: 0,
     notes: '',
@@ -72,6 +73,12 @@ const handleOpenShift = () => {
 const prepareMovement = (register) => {
     selectedRegister.value = register;
     movementForm.reset();
+
+    // Seleccionamos por defecto el primer método de pago si existe
+    if (props.paymentMethods && props.paymentMethods.length > 0) {
+        movementForm.payment_method_id = props.paymentMethods[0].id;
+    }
+
     showMovementModal.value = true;
 };
 
@@ -83,7 +90,6 @@ const handleStoreMovement = () => {
     });
 };
 
-// MODIFICADO: Pre-llenamos el correo con el del usuario autenticado si existe
 const prepareClose = (register) => {
     selectedRegister.value = register;
     closeForm.reset();
@@ -103,6 +109,9 @@ const handleCloseShift = () => {
 <template>
     <AppLayout>
         <div class="p-6 space-y-6">
+            <!-- <pre>
+                {{ props }}
+            </pre> -->
             <!-- Header con título y botón de creación -->
             <div class="flex items-center justify-between">
                 <div>
@@ -249,6 +258,19 @@ const handleCloseShift = () => {
                             :options="movementOptions"
                             optionLabel="label"
                             optionValue="value"
+                            class="w-full"
+                        />
+                    </div>
+
+                    <!-- AGREGADO: Select de Métodos de Pago -->
+                    <div class="flex flex-col gap-2">
+                        <label class="text-sm font-medium">Método de Pago</label>
+                        <Select
+                            v-model="movementForm.payment_method_id"
+                            :options="paymentMethods"
+                            optionLabel="name"
+                            optionValue="id"
+                            placeholder="Selecciona un método"
                             class="w-full"
                         />
                     </div>

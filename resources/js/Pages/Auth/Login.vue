@@ -147,10 +147,17 @@ const submit = () => {
                     <button
                         type="submit"
                         :disabled="form.processing"
-                        class="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2.5 px-4 rounded-lg shadow transition-colors duration-200 disabled:opacity-50 text-sm"
+                        class="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2.5 px-4 rounded-lg shadow transition-colors duration-200 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
                     >
-                        <span>Iniciar sesión</span>
-                        <i class="pi pi-arrow-right"></i>
+                        <template v-if="form.processing">
+                            <i class="pi pi-spin pi-spinner text-base"></i>
+                            <span>Espere un momento...</span>
+                        </template>
+
+                        <template v-else>
+                            <span>Iniciar sesión</span>
+                            <i class="pi pi-arrow-right"></i>
+                        </template>
                     </button>
                 </form>
 

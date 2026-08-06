@@ -10,6 +10,7 @@ import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
 import ConfirmDialog from 'primevue/confirmdialog';
 import { useConfirm } from 'primevue/useconfirm';
+import { usePosStore } from '@/stores/pos';
 
 const props = defineProps({
     products: Array
@@ -23,6 +24,7 @@ const progress = ref(0)
 const preview = ref([])
 const errors = ref([])
 const showImport = ref(false)
+const pos = usePosStore();
 
 const activeCategory = ref('Todos');
 
@@ -58,14 +60,28 @@ const categories = computed(() => {
 });
 
 const filteredProducts = computed(() => {
+    let productsList = props.products ?? [];
 
-    if (activeCategory.value === 'Todos') {
-        return props.products;
+    // 1. Filtrado por Categoría
+    if (activeCategory.value !== 'Todos') {
+        productsList = productsList.filter(
+            p => p.category?.name === activeCategory.value
+        );
     }
 
-    return props.products.filter(
-        p => p.category?.name === activeCategory.value
-    );
+    // 2. Filtrado por Búsqueda (pos.search proviene del Tophead)
+    if (pos.search.trim()) {
+        const query = pos.search.toLowerCase();
+
+        productsList = productsList.filter(product =>
+            product.name?.toLowerCase().includes(query) ||
+            product.sku?.toLowerCase().includes(query) ||
+            product.barcode?.toLowerCase().includes(query) ||
+            product.brand?.toLowerCase().includes(query)
+        );
+    }
+
+    return productsList;
 });
 
 const editProduct = (product) => {
@@ -421,10 +437,27 @@ const submitImport = async () => {
                     </div>
                 </header>
 
+                <!-- Si no se encuentran productos -->
+                <div
+                    v-if="filteredProducts.length === 0"
+                    class="flex flex-col items-center justify-center py-16 text-slate-400"
+                >
+                    <i class="pi pi-search text-4xl mb-3 opacity-40"></i>
+                    <p class="text-base font-semibold text-slate-600 dark:text-slate-300">
+                        No se encontraron productos para "{{ pos.search }}"
+                    </p>
+                    <button
+                        v-if="pos.search"
+                        @click="pos.search = ''"
+                        class="mt-2 text-xs text-emerald-500 font-bold hover:underline cursor-pointer"
+                    >
+                        Limpiar búsqueda
+                    </button>
+                </div>
 
                 <!-- GRID PRODUCTOS -->
-
                 <div
+                    v-else
                     class="
                         grid
                         grid-cols-1

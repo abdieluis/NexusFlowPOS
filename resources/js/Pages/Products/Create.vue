@@ -16,8 +16,9 @@ import { useToast } from 'primevue/usetoast';
 import { usePage } from '@inertiajs/vue3';
 
 const props = defineProps({
-    categories: Array,
-    taxes: Array
+    categories:Array,
+    taxes:Array,
+    saleTypes:Array
 });
 
 const toast = useToast();
@@ -45,14 +46,32 @@ const searchBarcode = async () => {
 
         console.log("Respuesta API:", data);
 
-        productForm.name = data.name ?? "";
-        productForm.brand = data.brand ?? "";
-        productForm.image = data.image ?? "";
+        productForm.name = data.name ?? '';
+        productForm.brand = data.brand ?? '';
+        productForm.description = data.description ?? '';
+        productForm.image = data.image ?? '';
+        productForm.barcode = data.barcode ?? productForm.barcode;
+        productForm.sku = data.barcode ?? productForm.barcode;
         productForm.category_id = data.category_id ?? null;
+
+
+        toast.add({
+            severity:'success',
+            summary:'Producto encontrado',
+            detail:'Se cargó información desde OpenFoodFacts. Revisa y completa los datos antes de guardar.',
+            life:4000
+        });
 
     } catch (error) {
 
         console.log(error);
+
+        toast.add({
+            severity:'warn',
+            summary:'Sin resultados',
+            detail:'No se encontró información para ese código de barras.',
+            life:4000
+        });
 
     } finally {
 
@@ -79,8 +98,24 @@ const productForm = useForm({
     stock_alert: 0,
     track_stock: true,
     has_variants: false,
-    status: true
+    status: true,
+    product_units:[
+        {
+            sale_type_id:null,
+            conversion_factor:1,
+            price:0,
+            is_default:true
+        }
+    ]
 });
+
+const setDefaultUnit = (index) => {
+    productForm.product_units.forEach((unit,i)=>{
+        unit.is_default = i === index;
+    });
+    productForm.price =
+        productForm.product_units[index].price;
+};
 
 const saveProduct = () => {
 
@@ -124,6 +159,19 @@ const saveProduct = () => {
 
 const goToIndex = () => {
     router.get(route('products.index'));
+};
+
+const removeUnit = (index) => {
+    if (productForm.product_units.length === 1) {
+        toast.add({
+            severity:'warn',
+            summary:'Aviso',
+            detail:'Debe existir al menos una unidad de venta.',
+            life:3000
+        });
+        return;
+    }
+    productForm.product_units.splice(index,1);
 };
 </script>
 
@@ -259,7 +307,7 @@ const goToIndex = () => {
                                     v-model="productForm.barcode"
                                     class="w-full"
                                     autofocus
-                                    @keyup.enter="searchBarcode"
+                                    @keydown.enter.prevent.stop="searchBarcode"
                                 />
                                 <label for="sku">Codigo de Barras</label>
                             </FloatLabel>
@@ -486,6 +534,73 @@ const goToIndex = () => {
 
                     </div>
 
+                    <!-- UNIDADES DE VENTA -->
+
+                    <div class="mt-10">
+                        <h2 class="text-xl font-bold mb-5">
+                            Configuración de venta
+                        </h2>
+                        <div
+                            v-for="(unit,index) in productForm.product_units"
+                            :key="index"
+                            class="grid grid-cols-1 md:grid-cols-5 gap-5 mb-5 items-center"
+                        >
+                            <Select
+                                v-model="unit.sale_type_id"
+                                :options="props.saleTypes"
+                                optionLabel="name"
+                                optionValue="id"
+                                placeholder="Tipo venta"
+                            />
+                            <InputNumber
+                                v-model="unit.price"
+                                mode="currency"
+                                currency="MXN"
+                                locale="es-MX"
+                                @input="
+                                    unit.is_default
+                                    ? productForm.price = unit.price
+                                    : null
+                                "
+                            />
+                            <InputNumber
+                                v-model="unit.conversion_factor"
+                                :min="1"
+                            />
+                            <div class="flex items-center gap-2">
+                                <Checkbox
+                                    :modelValue="unit.is_default"
+                                    :binary="true"
+                                    @update:modelValue="setDefaultUnit(index)"
+                                />
+                                <label>
+                                    Principal
+                                </label>
+                            </div>
+                            <Button
+                                type="button"
+                                icon="pi pi-trash"
+                                severity="danger"
+                                rounded
+                                outlined
+                                @click="removeUnit(index)"
+                            />
+                        </div>
+                        <Button
+                            type="button"
+                            label="Agregar unidad"
+                            icon="pi pi-plus"
+                            @click="
+                            productForm.product_units.push({
+                                sale_type_id:null,
+                                conversion_factor:1,
+                                price:0,
+                                is_default:false
+                            })
+                            "
+                        />
+                    </div>
+
                     <!-- DESCRIPCIÓN -->
                     <div class="mt-10">
                         <FloatLabel variant="on">
@@ -590,25 +705,3 @@ const goToIndex = () => {
 
     </AppLayout>
 </template>
-
-
-<!-- 1. 📦 Controlar inventario (track_stock)
-Determina si el sistema debe rastrear las existencias físicamente de este producto.
-
-Marcado (True): Cada vez que vendes este producto, el sistema resta unidades automáticamente de la tabla inventories. Si se termina, el POS te bloqueará la venta o mostrará una alerta de "Agotado".
-
-Desmarcado (False): Ideal para servicios (ej. Corte de cabello, Reparación), productos intangibles o insumos con stock ilimitado/no medible. Puedes venderlo N veces en la caja sin que el sistema valide o reste cantidades.
-
-2. 🎨 Tiene variantes (has_variants)
-Indica si el producto no es único, sino que se divide en presentaciones o atributos (talla, color, sabor, tamaño).
-
-Marcado (True): Le indica al sistema que este registro es solo una "familia" o "cabecera" y que las existencias y precios reales están divididos en una subtabla de variantes (ej. Shampoo Head & Shoulders - 375ml, 700ml, 1L). Al cobrar en caja, el sistema te pedirá elegir cuál variante específica estás vendiendo.
-
-Desmarcado (False): Es un producto simple estándar. Su stock y precio aplican de forma única directa (como lo tienes actualmente).
-
-3. 🟢 Activo (status)
-Determina la visibilidad operacional del producto en tu sistema.
-
-Marcado (True): El producto está habilitado para buscarse en el Punto de Venta (caja), aparece en catálogos y se puede incluir en compras/ventas.
-
-Desmarcado (False): Se oculta en la caja de cobro para evitar que los cajeros lo vendan (útil cuando descontinúas un producto o dejas de manejarlo temporalmente), pero sin borrar el historial de ventas pasadas ni romper reportes financieros. -->

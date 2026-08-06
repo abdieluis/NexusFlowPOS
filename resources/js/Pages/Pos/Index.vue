@@ -13,6 +13,7 @@ import draggable from "vuedraggable";
 import { usePosStore } from '@/stores/pos';
 import Toast from 'primevue/toast';
 import { useToast } from 'primevue/usetoast';
+import Message from 'primevue/message';
 
 const toast = useToast();
 
@@ -31,14 +32,20 @@ const props = defineProps({
     activeRegister: {
         type: Object,
         default: null
-    }
+    },
+    paymentMethods: Array,
 });
 
 const confirm = useConfirm();
-
+const lastSaleTicket = ref(null);
 const productsList = ref([...props.products]);
 // --- ESTADOS REACTIVOS ---
 const selectedCategory = ref(null); // null significa "All Items"
+// --- ESTADOS BÁSCULA USB ---
+const scaleConnected = ref(false);
+const scalePort = ref(null);
+const currentScaleWeight = ref(0.000);
+const scaleError = ref(null);
 // const cart = ref([]);
 const barcodeBuffer = ref('');
 const lastKeyTime = ref(Date.now());
@@ -50,8 +57,157 @@ const paid = ref(null);
 const selectedCustomer = ref(1);
 const nextTransactionNumber = ref(2);
 const pos = usePosStore();
-const paymentMethod = ref('cash');
+const creditPayment = ref(0);
 
+const defaultPaymentMethod = computed(() => {
+    return props.paymentMethods.find(
+        method => method.name === 'Efectivo'
+    )?.id ?? null;
+});
+
+const paymentMethod = ref(defaultPaymentMethod.value);
+const showUnitSelector = ref(false);
+const selectedProduct = ref(null);
+const selectedPackageUnit = ref(null);
+
+// --- LÓGICA DE BÁSCULA USB (WEB SERIAL API) ---
+const connectScale = async () => {
+    scaleError.value = null;
+
+    if (!('serial' in navigator)) {
+        toast.add({
+            severity: 'error',
+            summary: 'Navegador No Compatible',
+            detail: 'Web Serial no está soportado en este navegador. Usa Chrome o Edge.',
+            life: 4000
+        });
+        return;
+    }
+
+    try {
+        // Solicita al usuario seleccionar el puerto USB asignado a la báscula
+        scalePort.value = await navigator.serial.requestPort();
+
+        // Abre el puerto serie (ajusta baudRate según tu báscula, habitualmente 9600)
+        await scalePort.value.open({ baudRate: 9600 });
+        scaleConnected.value = true;
+
+        toast.add({
+            severity: 'success',
+            summary: 'Báscula Conectada',
+            detail: 'Lectura USB establecida correctamente.',
+            life: 3000
+        });
+
+        listenToScale();
+    } catch (err) {
+        console.error('Error báscula:', err);
+        scaleConnected.value = false;
+        toast.add({
+            severity: 'warn',
+            summary: 'Conexión cancelada',
+            detail: 'No se pudo abrir el puerto serie de la báscula.',
+            life: 3000
+        });
+    }
+};
+
+const formatStock = (product) => {
+    const rawStock = Number(product.stock) || 0;
+
+    // Si NO es a granel / medible, se muestra como unidades enteras
+    if (!product.is_weighted) {
+        return `${Math.floor(rawStock)} unidades`;
+    }
+
+    // Si ES a granel / medible (is_weighted == 1)
+    // Caso 1: Menor a 1 (ejemplo: 0.85 -> 850 g/m, 0.19 -> 190 g/m)
+    if (rawStock < 1 && rawStock > 0) {
+        // Convertimos los decimales a gramos/centímetros (multiplicando por 1000)
+        const subUnits = Math.round(rawStock * 1000);
+        return `${subUnits} g`; // O 'mts/cm' según la unidad base de tu negocio
+    }
+
+    // Caso 2: Mayor o igual a 1 (ejemplo: 3.00 -> 3 kg/mts)
+    // Number() remueve ceros innecesarios a la derecha (ej: 3.50 -> 3.5)
+    return `${Number(rawStock.toFixed(3))} kg/mts`;
+};
+
+const listenToScale = async () => {
+    const textDecoder = new TextDecoderStream();
+    const readableStreamClosed = scalePort.value.readable.pipeTo(textDecoder.writable);
+    const reader = textDecoder.readable.getReader();
+
+    let buffer = '';
+
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+                reader.releaseLock();
+                break;
+            }
+
+            if (value) {
+                buffer += value;
+
+                // Las básculas terminan su trama con salto de línea (\n o \r)
+                if (buffer.includes('\n') || buffer.includes('\r')) {
+                    parseScaleData(buffer);
+                    buffer = ''; // Limpiar buffer para la siguiente lectura
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error leyendo flujo de báscula:', err);
+        scaleConnected.value = false;
+    }
+};
+
+const parseScaleData = (rawFrame) => {
+    // Expresión regular para extraer números decimales de la trama enviada (ej. "ST,GS,+001.450kg")
+    const match = rawFrame.match(/[-+]?\d*\.?\d+/);
+    if (match) {
+        const parsedWeight = parseFloat(match[0]);
+        if (!isNaN(parsedWeight)) {
+            currentScaleWeight.value = parsedWeight;
+        }
+    }
+};
+
+// Asignar el peso actual al producto seleccionado en el carrito o al agregarlo
+const applyWeightToCartItem = (itemId) => {
+    if(unit.sale_type_id === 2){
+        item.quantity=currentScaleWeight.value;
+    }
+    if (currentScaleWeight.value <= 0) return;
+
+    const item = cart.value.find(i => i.id === itemId);
+    if (item) {
+        item.quantity = Number(currentScaleWeight.value.toFixed(3));
+    }
+};
+
+const addSelectedUnit = (unit)=>{
+    if(!currentTransaction.value){
+        return;
+    }
+    const product = selectedProduct.value;
+    currentTransaction.value.cart.push({
+        id: crypto.randomUUID(),
+        product_id: product.id,
+        product_variant_id: unit.product_variant_id ?? null,
+        product_unit_id: unit.id,
+        sale_type_id: unit.sale_type_id,
+        sale_type: unit.sale_type,
+        conversion_factor: unit.conversion_factor,
+        name: product.name,
+        quantity:1,
+        price:Number(unit.price),
+        tax:product.tax
+    });
+    showUnitSelector.value=false;
+};
 // Variable que nos dirá si la caja está abierta (true / false)
 const isRegisterOpen = computed(() => !!props.activeRegister);
 
@@ -65,6 +221,19 @@ const cart = computed(() => {
     return currentTransaction.value?.cart ?? [];
 });
 
+const customerDebt = computed(()=>{
+    return Number(
+        selectedCustomerObj.value?.current_balance ?? 0
+    );
+});
+
+const remainingCreditPayment = computed(()=>{
+    return Math.min(
+        Number(creditPayment.value),
+        customerDebt.value
+    );
+});
+
 const quickForm = ref({
     barcode: '',
     sku: '',
@@ -76,12 +245,23 @@ const quickForm = ref({
     category_id: null
 });
 
+const isCashPayment = computed(() => {
+    return paymentMethod.value === defaultPaymentMethod.value;
+});
+
+watch(paymentMethod, (method) => {
+
+    if (method !== defaultPaymentMethod.value) {
+        paid.value = amountDue.value;
+    } else {
+        paid.value = null;
+    }
+
+});
+
 // --- FILTRADO DE PRODUCTOS ---
 const filteredProducts = computed(() => {
-
     let products = productsList.value ?? [];
-
-
     // Categoría
     if (selectedCategory.value) {
         products = products.filter(
@@ -107,38 +287,237 @@ const filteredProducts = computed(() => {
 
 // --- CÁLCULOS DEL CARRITO (SUBTOTAL, IVA, TOTAL) ---
 const subtotal = computed(() => {
-    return cart.value.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
-});
-
-const totalTax = computed(() => {
-    // Calcula el impuesto basado en la relación con el producto o una tasa general
-    // Modifica según cómo manejes la relación de tax_id
     return cart.value.reduce((sum, item) => {
-        const taxPercentage = item.tax?.percentage ? Number(item.tax.percentage) : 8.5; // 8.5% por defecto si no viene mapeado
-        return sum + (Number(item.price) * item.quantity * (taxPercentage / 100));
+        return sum + (
+            Number(item.price) * item.quantity
+        );
     }, 0);
 });
 
-const amountDue = computed(() => subtotal.value + totalTax.value);
+const totalTax = computed(() => {
+
+    return cart.value.reduce((sum, item) => {
+        const taxPercentage = item.tax?.percentage
+            ? Number(item.tax.percentage)
+            : 8.5;
+        return sum + (
+            Number(item.price) *
+            item.quantity *
+            (taxPercentage / 100)
+        );
+    }, 0);
+
+});
+
+const amountDue = computed(() => {
+    return subtotal.value + totalTax.value;
+});
 
 const totalItemsInCart = computed(() => {
     return cart.value.reduce((sum, item) => sum + item.quantity, 0);
 });
 
-// --- ACCIONES DEL CARRITO ---
-const addToCart = (product) => {
-    // Validar si el producto cuenta con stock trackeable si es necesario
-    const existingItem = cart.value.find(item => item.id === product.id);
+const selectProduct = (product)=>{
 
-    if (existingItem) {
-        existingItem.quantity += 1;
-    } else {
-        currentTransaction.value.cart.push({
-            ...product,
-            quantity: 1
-        });
+    // Si tiene unidades configuradas
+    if(product.product_units &&
+       product.product_units.length > 0)
+    {
+
+        // una sola unidad
+        if(product.product_units.length === 1){
+
+            addSelectedUnit(
+                product.product_units[0]
+            );
+
+            return;
+        }
+
+
+        // varias unidades
+        selectedProduct.value = product;
+        showUnitSelector.value = true;
+
+        return;
     }
+
+
+    // Producto antiguo / sin configuración
+    addToCart(product);
+
 };
+
+// const selectProduct = (product) => {
+//     // const packageUnit = product.product_units?.find(
+//     //     unit => unit.sale_type?.name?.toLowerCase() === 'paquete'
+//     // );
+//     const packageUnit = product.product_units?.find(
+//         unit => unit.sale_type_id === 4
+//     );
+//     // Si no existe unidad tipo paquete seguimos igual
+//     if (!packageUnit) {
+//         addToCart(product);
+//         return;
+//     }
+//     selectedProduct.value = product;
+//     selectedPackageUnit.value = packageUnit;
+//     showUnitSelector.value = true;
+// };
+
+// const addAsPieceDirect = (product)=>{
+//     const unit = product.product_units?.find(
+//         u => u.sale_type_id === 1
+//     );
+
+//     if(!unit){
+//         toast.add({
+//             severity:'warn',
+//             summary:'Producto sin unidad',
+//             detail:'No tiene unidad de venta configurada',
+//             life:3000
+//         });
+//         return;
+//     }
+
+//     currentTransaction.value.cart.push({
+//         id: crypto.randomUUID(),
+//         product_id:product.id,
+//         product_unit_id:unit.id,
+//         sale_type_id:unit.sale_type_id,
+//         name:product.name,
+//         quantity:1,
+//         price:Number(unit.price),
+//         tax:product.tax
+//     });
+// };
+
+// const addAsPiece = () => {
+//     showUnitSelector.value = false;
+//     addToCart(selectedProduct.value);
+// };
+
+const addUnitToCart = (product, unit)=>{
+    currentTransaction.value.cart.push({
+        id: crypto.randomUUID(),
+        product_id: product.id,
+        product_variant_id: unit.product_variant_id ?? null,
+        product_unit_id: unit.id,
+        sale_type_id: unit.sale_type_id,
+        sale_type: unit.sale_type,
+        conversion_factor: unit.conversion_factor,
+        name: product.name,
+        quantity:1,
+        price:Number(unit.price),
+        tax:product.tax
+    });
+};
+
+// const addAsPiece = ()=>{
+//     const product = selectedProduct.value;
+
+//     const unit = product.product_units.find(
+//         u=>u.sale_type_id === 1
+//     );
+
+//     if(!unit){
+//         toast.add({
+//             severity:'warn',
+//             summary:'Sin pieza',
+//             detail:'Este producto no se vende por pieza',
+//             life:3000
+//         });
+//         return;
+//     }
+
+//     addUnitToCart(product,unit);
+//     showUnitSelector.value=false;
+// };
+
+// const addAsPackage = () => {
+//     showUnitSelector.value = false;
+//     addToCart(selectedProduct.value);
+// };
+
+// const addAsPackage = () => {
+//     const product = selectedProduct.value;
+//     const unit = product.product_units.find(
+//         u => u.sale_type_id === 4
+//     );
+
+//     if(!unit){
+//         toast.add({
+//             severity:'warn',
+//             summary:'Sin paquete',
+//             detail:'Este producto no tiene presentación por paquete',
+//             life:3000
+//         });
+//         return;
+//     }
+
+//     currentTransaction.value.cart.push({
+//         id: crypto.randomUUID(),
+//         product_id: product.id,
+//         product_unit_id: unit.id,
+//         sale_type_id: unit.sale_type_id,
+//         name: product.name,
+//         quantity:1,
+//         price:Number(unit.price),
+//         tax: product.tax
+//     });
+
+//     showUnitSelector.value=false;
+// };
+
+// --- ACCIONES DEL CARRITO ---
+const addToCart = (product)=>{
+    const defaultUnit = product.product_units?.find(
+        u => Number(u.is_default) === 1
+    );
+
+    currentTransaction.value.cart.push({
+        id: crypto.randomUUID(),
+        product_id: product.id,
+        product_variant_id:
+            product.product_variant_id ?? null,
+        product_unit_id:
+            defaultUnit?.id ?? null,
+        sale_type_id:
+            defaultUnit?.sale_type_id ?? null,
+        conversion_factor:
+            defaultUnit?.conversion_factor ?? 1,
+        name:
+            product.name,
+        quantity:1,
+        price:
+            Number(
+                defaultUnit?.price ??
+                product.price
+            ),
+        tax:
+            product.tax
+    });
+};
+// const addToCart = (product, unit = null) => {
+
+//     const existingItem = cart.value.find(
+//         item => item.id === product.id
+//     );
+
+//     if (existingItem) {
+
+//         existingItem.quantity += 1;
+
+//     } else {
+
+//         currentTransaction.value.cart.push({
+//             ...product,
+//             price: Number(product.price),
+//             quantity: 1
+//         });
+
+//     }
+// };
 
 const updateQuantity = (productId, change) => {
     const item = cart.value.find(i => i.id === productId);
@@ -418,16 +797,54 @@ onMounted(() => {
     if (defaultCustomer) {
         selectedCustomer.value = defaultCustomer.id;
     }
+
+    paymentMethod.value = defaultPaymentMethod.value;
 });
 
-onUnmounted(() => {
+onUnmounted(async () => {
     window.removeEventListener('keydown', handleBarcodeScanner);
+
+    if (scalePort.value) {
+        try {
+            await scalePort.value.close();
+        } catch (e) {
+            console.error('Error al cerrar puerto de báscula:', e);
+        }
+    }
 });
 
 // --- FORMATEADOR MONETARIO ---
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 };
+
+const roundPrice = (price) => {
+
+    const value = Number(price);
+
+    if (isNaN(value)) return 0;
+
+    const integer = Math.floor(value);
+    const decimal = Number((value - integer).toFixed(2));
+
+    if (decimal === 0) {
+        return integer;
+    }
+
+    if (decimal <= 0.50) {
+        return integer + 0.50;
+    }
+
+    return integer + 1;
+};
+
+const suggestedTotal = computed(() => {
+    return roundPrice(amountDue.value);
+});
+
+const hasSuggestedRounding = computed(() => {
+    return Number(suggestedTotal.value) !== Number(amountDue.value);
+});
 
 // --- FINALIZAR Y REGISTRAR VENTA ---
 const finishSale = async () => {
@@ -457,7 +874,15 @@ const finishSale = async () => {
     try {
         // 1. Guardar la copia de los datos actuales de la venta antes de vaciar
         const saleData = {
-            items: [...cart.value],
+            items: cart.value.map(item => ({
+                name:item.name,
+                product_id: item.product_id,
+                product_unit_id: item.product_unit_id,
+                sale_type_id: item.sale_type_id,
+                quantity: item.quantity,
+                price: item.price,
+                subtotal:item.price * item.quantity
+            })),
             subtotal: subtotal.value,
             tax: totalTax.value,
             total: amountDue.value,
@@ -466,6 +891,8 @@ const finishSale = async () => {
             paymentMethod: paymentMethod.value
         };
 
+        console.log(cart.value)
+
         await axios.post(route('pos.store'), {
             items: saleData.items,
             subtotal: saleData.subtotal,
@@ -473,9 +900,19 @@ const finishSale = async () => {
             total: saleData.total,
             paid: saleData.paid,
             change: saleData.change,
-            customer_id: selectedCustomer.value,
-            payment_method: saleData.paymentMethod
+            customer_id:selectedCustomer.value,
+            payment_method_id:saleData.paymentMethod,
+            credit_payment: creditUsed.value
         });
+
+        const customer = props.customers.find(c=>c.id===selectedCustomer.value);
+
+        if(customer){
+            customer.current_balance =
+                Number(customer.current_balance)
+                +
+                Number(missingAmount.value);
+        }
 
         toast.add({
             severity: 'success',
@@ -485,12 +922,16 @@ const finishSale = async () => {
         });
 
         // 2. Mandar a imprimir pasando la copia de los datos
+        // Guardar ticket para poder reimprimir después
+        lastSaleTicket.value = saleData;
+
+        // Imprimir automáticamente después de liquidar
         printTicket(saleData);
 
         // 3. Limpiar la interfaz
         clearCart();
         paid.value = null;
-        paymentMethod.value = 'cash';
+        paymentMethod.value = defaultPaymentMethod.value;
         selectedCustomer.value = props.customers.find(c => c.id === 1)?.id ?? null;
 
     } catch (error) {
@@ -504,6 +945,13 @@ const finishSale = async () => {
     }
 };
 
+const reprintTicket = () => {
+    if (!lastSaleTicket.value) {
+        return;
+    }
+    printTicket(lastSaleTicket.value);
+};
+
 // --- CÁLCULOS Y VALIDACIONES DE PAGO ---
 
 // 1. Calcular el Cambio a entregar
@@ -515,55 +963,125 @@ const changeAmount = computed(() => {
 
 // 2. Calcular Faltante por pagar
 const missingAmount = computed(() => {
-    if (!paid.value) return amountDue.value;
-    const diff = Number(amountDue.value) - Number(paid.value);
-    return diff > 0 ? diff : 0;
+    const payment = Number(paid.value ?? 0);
+    const difference =
+        Number(amountDue.value) - payment;
+    return difference > 0
+        ? difference
+        : 0;
 });
+
+const excessPayment = computed(()=>{
+
+    if(isGeneralPublic.value){
+        return 0;
+    }
+
+    const payment = Number(paid.value ?? 0);
+
+    const difference =
+        payment - Number(amountDue.value);
+
+    return difference > 0
+        ? difference
+        : 0;
+});
+
+// const excessPayment = computed(()=>{
+//     const payment = Number(paid.value ?? 0);
+//     const difference =
+//         payment - Number(amountDue.value);
+//     return difference > 0
+//         ? difference
+//         : 0;
+// });
 
 // 3. Obtener el objeto del cliente seleccionado
 const selectedCustomerObj = computed(() => {
     return props.customers.find(c => c.id === selectedCustomer.value) ?? null;
 });
 
+const availableCredit = computed(()=>{
+    if(!selectedCustomerObj.value)
+        return 0;
+    return Number(
+        selectedCustomerObj.value.credit_limit
+    )
+    -
+    Number(
+        selectedCustomerObj.value.current_balance
+    );
+});
+
 // 4. Validar si es Cliente Público General (asumiendo ID 1)
 const isGeneralPublic = computed(() => {
-    return selectedCustomer.value === 1 || !selectedCustomerObj.value;
+    // return selectedCustomer.value === 1 || !selectedCustomerObj.value;
+    return Number(selectedCustomerObj.value?.is_default) === 1;
+    // return selectedCustomerObj.value?.is_default === true;
 });
 
 // 5. Validar si el cliente tiene crédito suficiente para cubrir el faltante
 const hasEnoughCredit = computed(() => {
-    if (isGeneralPublic.value) return false;
-    const customer = selectedCustomerObj.value;
-    if (!customer || !customer.has_credit) return false;
 
-    // Crédito disponible = Limite de crédito - Deuda actual
-    const availableCredit = Number(customer.credit_limit ?? 0) - Number(customer.current_balance ?? 0);
+    if (isGeneralPublic.value) return false;
+
+    const customer = selectedCustomerObj.value;
+
+    if (!customer) return false;
+
+
+    const availableCredit =
+        Number(customer.credit_limit ?? 0)
+        -
+        Number(customer.current_balance ?? 0);
+
+
     return availableCredit >= missingAmount.value;
+
+});
+
+const creditUsed = computed(() => {
+    if(
+        !isGeneralPublic.value &&
+        missingAmount.value > 0
+    ){
+        return Number(missingAmount.value);
+    }
+    return 0;
+});
+
+const creditExtraPayment = computed(()=>{
+    if(
+        !isGeneralPublic.value &&
+        excessPayment.value > 0
+    ){
+        return Number(excessPayment.value);
+    }
+    return 0;
 });
 
 // 6. Determinar si se puede procesar la venta
 const canProcessSale = computed(() => {
-    if (cart.value.length === 0) return false;
-    if (!paid.value || Number(paid.value) <= 0) return false;
-
-    // Si el pago cubre el total o más -> Venta válida
-    if (Number(paid.value) >= Number(amountDue.value)) return true;
-
-    // Si el pago es menor pero es cliente con crédito suficiente -> Venta válida
-    if (!isGeneralPublic.value && hasEnoughCredit.value) return true;
-
-    return false;
+    if(cart.value.length === 0)
+        return false;
+    if(isGeneralPublic.value){
+        return Number(paid.value ?? 0) >= Number(amountDue.value);
+    }
+    const payment = Number(paid.value ?? 0);
+    // Cliente con crédito
+    if(!isGeneralPublic.value){
+        return true;
+    }
+    return payment >= amountDue.value;
 });
 
 const printTicket = (saleData) => {
-    const { items, subtotal, tax, total, paid, change, paymentMethod } = saleData;
+    const { items, subtotal, tax, total, paid, change, paymentMethod, customer_name } = saleData;
 
     // Etiqueta legible del método de pago
-    const methodLabel = {
-        cash: 'Efectivo',
-        card: 'Tarjeta',
-        transfer: 'Transferencia'
-    }[paymentMethod] || paymentMethod;
+    const methodLabel = props.paymentMethods.find(
+        method => method.id === paymentMethod
+    )?.name ?? 'Sin método';
 
     const html = `
     <!DOCTYPE html>
@@ -685,6 +1203,9 @@ const printTicket = (saleData) => {
     <Head title="Punto de Venta" />
     <AppLayout>
         <Toast />
+        <!-- <pre>
+        {{ props.customers }}
+        </pre> -->
         <div
             v-if="!isRegisterOpen"
             class="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-between shadow-sm"
@@ -738,11 +1259,11 @@ const printTicket = (saleData) => {
                         <div
                             v-for="product in filteredProducts"
                             :key="product.id"
-                            @click="addToCart(product)"
+                            @click="selectProduct(product)"
                             class="group relative flex flex-col bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden cursor-pointer hover:shadow-md transition-all duration-200"
                         >
                             <span class="absolute top-3 right-3 z-10 bg-black/70 backdrop-blur-md text-white px-2.5 py-1 rounded-lg text-xs font-bold">
-                                {{ formatCurrency(product.price ?? 0) }}
+                                {{ formatCurrency(roundPrice(product.price ?? 0)) }}
                             </span>
 
                             <div class="aspect-square w-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
@@ -771,8 +1292,12 @@ const printTicket = (saleData) => {
                                 </div>
                                 <div class="flex items-center justify-between mt-1 text-xs">
                                     <span class="text-slate-500">Existencias:</span>
-                                    <span :class="Number(product.stock_alert) >= 10 ? 'text-red-500 font-bold' : 'text-slate-600 dark:text-slate-400'">
-                                        100 unidades</span>
+                                    <span :class="parseFloat(product.stock) <= parseFloat(product.stock_alert)
+                                        ? 'text-red-500 font-bold'
+                                        : 'text-slate-600 dark:text-slate-400'">
+
+                                        {{ formatStock(product) }}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -887,24 +1412,43 @@ const printTicket = (saleData) => {
                         class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800"
                     >
                         <div>
-
                             <h3 class="font-bold text-lg">
                                 Orden actual
                             </h3>
-
                             <p class="text-xs text-slate-500 mt-1">
                                 <i class="pi pi-shopping-cart text-xs"></i> {{ totalItemsInCart }} artículos en el carrito
                             </p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <!-- BOTÓN CONEXIÓN BÁSCULA -->
+                            <button
+                                type="button"
+                                @click="connectScale"
+                                class="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                                :class="scaleConnected
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300'
+                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200'"
+                            >
+                                <i class="pi pi-compass" :class="scaleConnected ? 'animate-spin' : ''"></i>
+                                <span>{{ scaleConnected ? `${currentScaleWeight} kg` : 'Conectar Báscula' }}</span>
+                            </button>
 
+                            <button
+                                v-if="cart.length"
+                                @click="clearCart"
+                                class="text-xs text-red-500 hover:text-red-600 font-semibold ml-2"
+                            >
+                                Vaciar
+                            </button>
                         </div>
 
-                        <button
+                        <!-- <button
                             v-if="cart.length"
                             @click="clearCart"
                             class="text-xs text-red-500 hover:text-red-600 font-semibold"
                         >
                             Vaciar
-                        </button>
+                        </button> -->
 
                     </div>
 
@@ -951,13 +1495,16 @@ const printTicket = (saleData) => {
                                         </h4>
 
                                         <p class="text-xs text-slate-400">
+                                            {{ item.sale_type_id
+                                                ? item.sale_type?.name
+                                                : 'Unidad'
+                                            }}
+                                            |
                                             {{ formatCurrency(item.price) }}
                                             ×
                                             {{ item.quantity }}
                                         </p>
-
                                     </div>
-
                                     <div class="font-bold">
                                         {{ formatCurrency(item.price * item.quantity) }}
                                     </div>
@@ -994,7 +1541,7 @@ const printTicket = (saleData) => {
                     <!-- FOOTER -->
 
                     <div
-                        class="border-t border-slate-200 dark:border-slate-800 p-5 space-y-4 bg-white dark:bg-slate-900"
+                        class="border-t border-slate-200 dark:border-slate-800 p-5 space-y-4 bg-white dark:bg-slate-900 overflow-y-auto max-h-[35vh]"
                     >
 
                         <div class="space-y-2 text-sm">
@@ -1010,50 +1557,52 @@ const printTicket = (saleData) => {
                             </div>
 
                             <div class="flex justify-between border-t pt-3">
-
                                 <span class="font-bold text-lg">
                                     Total
                                 </span>
-
                                 <span class="font-black text-4xl text-emerald-600">
                                     {{ formatCurrency(amountDue) }}
                                 </span>
-
                             </div>
 
+                            <div
+                                v-if="hasSuggestedRounding"
+                                class="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700"
+                            >
+                                <div class="flex items-center gap-2 font-bold text-sm">
+                                    <i class="pi pi-lightbulb"></i>
+                                    Precio a cobrar sugerido
+                                </div>
+                                <div class="text-xl font-black mt-1">
+                                    {{ formatCurrency(suggestedTotal) }}
+                                </div>
+                                <p class="text-xs mt-1">
+                                    Es una recomendación para facilitar el cobro.
+                                    La venta se registrará con el importe real.
+                                </p>
+                            </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
 
                             <button
-                                @click="printTicket({
-                                    items: cart,
-                                    subtotal: subtotal,
-                                    tax: totalTax,
-                                    total: amountDue,
-                                    paid: paid || amountDue,
-                                    change: changeAmount,
-                                    paymentMethod: paymentMethod
-                                })"
-                                :disabled="cart.length === 0"
-                                class="rounded-xl border py-3 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                                v-if="lastSaleTicket"
+                                @click="reprintTicket"
+                                class="rounded-xl border py-3 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center gap-2 transition-all"
                             >
                                 <i class="pi pi-print"></i>
-                                <span>Imprimir</span>
+                                <span>Reimprimir ticket</span>
                             </button>
-
                             <button class="rounded-xl border py-3 font-semibold hover:bg-slate-50">
                                 <i class="pi pi-wallet"></i>
                                 <span> Abrir cajón</span>
                             </button>
-
                         </div>
 
                         <div>
                             <label class="text-sm font-semibold">
                                 Cliente
                             </label>
-
                             <Select
                                 v-model="selectedCustomer"
                                 :options="props.customers"
@@ -1065,17 +1614,21 @@ const printTicket = (saleData) => {
                             />
                         </div>
 
+                        <div
+                            v-if="!isGeneralPublic"
+                            class="p-3 rounded-xl"
+                        >
+                            <Message severity="secondary" :closable="false">Crédito disponible:<strong>{{formatCurrency(availableCredit)}}</strong></Message>
+                        </div>
+
                         <div>
                             <label class="text-sm font-semibold">Método de pago</label>
                             <Select
                                 v-model="paymentMethod"
-                                :options="[
-                                    { label: 'Efectivo', value: 'cash' },
-                                    { label: 'Tarjeta', value: 'card' },
-                                    { label: 'Transferencia', value: 'transfer' }
-                                ]"
-                                optionLabel="label"
-                                optionValue="value"
+                                :options="props.paymentMethods"
+                                optionLabel="name"
+                                optionValue="id"
+                                placeholder="Seleccionar método de pago"
                                 class="w-full"
                             />
                         </div>
@@ -1084,7 +1637,6 @@ const printTicket = (saleData) => {
                             <label class="text-sm font-semibold">
                                 Pago recibido
                             </label>
-
                             <InputNumber
                                 v-model="paid"
                                 mode="decimal"
@@ -1092,11 +1644,85 @@ const printTicket = (saleData) => {
                                 :minFractionDigits="2"
                                 :maxFractionDigits="2"
                                 :updateOnInput="true"
-                                @input="(e) => paid = e.value"
                                 class="w-full"
                                 placeholder="0.00"
                             />
                         </div>
+                        <!-- DESGLOSE Y ALERTAS EN TIEMPO REAL
+                        <div
+                            v-if="paid !== null && paid !== '' && Number(paid) > 0"
+                            class="p-4 rounded-2xl border transition-all mt-3"
+                            :class="{
+                                'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800': Number(paid) >= Number(amountDue),
+                                'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800': Number(paid) < Number(amountDue) && isGeneralPublic,
+                                'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800': Number(paid) < Number(amountDue) && !isGeneralPublic && hasEnoughCredit,
+                                'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800': Number(paid) < Number(amountDue) && !isGeneralPublic && !hasEnoughCredit
+                            }"
+                        >
+                            1. CASO: PAGO MAYOR O IGUAL AL TOTAL
+                            <div
+                                v-if="Number(paid) >= Number(amountDue)"
+                                class="space-y-2 text-sm"
+                            >
+
+                                <div class="flex justify-between">
+                                    <span>Total compra:</span>
+                                    <strong>{{formatCurrency(amountDue)}}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Pago recibido:</span>
+                                    <strong>{{formatCurrency(paid)}}</strong>
+                                </div>
+
+                                <div
+                                    v-if="excessPayment > 0 && !isGeneralPublic"
+                                    class="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700"
+                                >
+                                    <i class="pi pi-info-circle"></i>
+                                    El cliente cubre su compra y tiene un abono extra a crédito de:
+                                    <strong>
+                                        {{formatCurrency(excessPayment)}}
+                                    </strong>
+                                </div>
+
+                                <div class="flex justify-between border-t pt-2">
+                                    <span class="font-bold">
+                                        Pago aplicado:
+                                    </span>
+                                    <strong>
+                                        {{formatCurrency(amountDue)}}
+                                    </strong>
+                                </div>
+                            </div>
+
+                            2. CASO: PAGO MENOR EN PÚBLICO EN GENERAL
+                            <div v-else-if="isGeneralPublic" class="text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                                <div class="flex items-center gap-1 font-bold text-sm">
+                                    <i class="pi pi-exclamation-triangle"></i>
+                                    <span>Pago incompleto</span>
+                                </div>
+                                <p>El cliente <strong>Público en General</strong> no cuenta con crédito. Debe liquidar el total de <strong>{{ formatCurrency(amountDue) }}</strong> (Faltan {{ formatCurrency(missingAmount) }}).</p>
+                            </div>
+
+                            3. CASO: PAGO MENOR EN CLIENTE CON CRÉDITO SUFICIENTE
+                            <div v-else-if="hasEnoughCredit" class="text-xs text-blue-700 dark:text-blue-400 space-y-1">
+                                <div class="flex items-center gap-1 font-bold text-sm">
+                                    <i class="pi pi-credit-card"></i>
+                                    <span>Venta a Crédito Aprobada</span>
+                                </div>
+                                <p>El cliente pagará {{ formatCurrency(paid) }} y la diferencia de <strong>{{ formatCurrency(missingAmount) }}</strong> se cargará a su cuenta de crédito.</p>
+                            </div>
+
+                            4. CASO: PAGO MENOR EN CLIENTE SIN CRÉDITO SUFICIENTE
+                            <div v-else class="text-xs text-red-700 dark:text-red-400 space-y-1">
+                                <div class="flex items-center gap-1 font-bold text-sm">
+                                    <i class="pi pi-times-circle"></i>
+                                    <span>Crédito Insuficiente</span>
+                                </div>
+                                <p>Faltan {{ formatCurrency(missingAmount) }} y el cliente no tiene suficiente límite de crédito disponible.</p>
+                            </div>
+                        </div> -->
                         <!-- DESGLOSE Y ALERTAS EN TIEMPO REAL -->
                         <div
                             v-if="paid !== null && paid !== '' && Number(paid) > 0"
@@ -1108,49 +1734,179 @@ const printTicket = (saleData) => {
                                 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800': Number(paid) < Number(amountDue) && !isGeneralPublic && !hasEnoughCredit
                             }"
                         >
-                            <!-- 1. CASO: PAGO MAYOR O IGUAL AL TOTAL -->
-                            <div v-if="Number(paid) >= Number(amountDue)" class="space-y-1 text-sm">
-                                <div class="flex justify-between text-slate-600 dark:text-slate-300">
-                                    <span>Total a cobrar:</span>
-                                    <span class="font-bold">{{ formatCurrency(amountDue) }}</span>
+
+                            <!-- ========================= -->
+                            <!-- PAGO COMPLETO -->
+                            <!-- ========================= -->
+                            <div
+                                v-if="Number(paid) >= Number(amountDue)"
+                                class="space-y-2 text-sm"
+                            >
+
+                                <div class="flex justify-between">
+                                    <span>Total compra:</span>
+                                    <strong>{{ formatCurrency(amountDue) }}</strong>
                                 </div>
-                                <div class="flex justify-between text-slate-600 dark:text-slate-300">
-                                    <span>Recibido ({{ paymentMethod === 'cash' ? 'Efectivo' : paymentMethod }}):</span>
-                                    <span class="font-bold">{{ formatCurrency(paid) }}</span>
+
+                                <div class="flex justify-between">
+                                    <span>Pago recibido:</span>
+                                    <strong>{{ formatCurrency(paid) }}</strong>
                                 </div>
-                                <div class="flex justify-between border-t border-emerald-200 dark:border-emerald-800 pt-2 text-emerald-700 dark:text-emerald-400 font-extrabold text-base">
-                                    <span>{{ paymentMethod === 'cash' ? 'Cambio a entregar:' : 'Saldo a favor:' }}</span>
-                                    <span>{{ formatCurrency(changeAmount) }}</span>
-                                </div>
+
+                                <!-- CLIENTE PÚBLICO GENERAL -->
+                                <template v-if="isGeneralPublic">
+
+                                    <div class="flex justify-between border-t pt-2">
+                                        <span class="font-bold">
+                                            Cambio:
+                                        </span>
+
+                                        <strong class="text-emerald-600">
+                                            {{ formatCurrency(changeAmount) }}
+                                        </strong>
+                                    </div>
+
+                                </template>
+
+                                <!-- CLIENTE CON CRÉDITO -->
+                                <template v-else>
+
+                                    <div
+                                        v-if="excessPayment > 0"
+                                        class="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700"
+                                    >
+                                        <i class="pi pi-info-circle"></i>
+
+                                        El cliente entregó
+                                        <strong>{{ formatCurrency(excessPayment) }}</strong>
+                                        adicionales.
+
+                                        Más adelante podremos preguntar si ese importe será cambio
+                                        o abono a crédito.
+                                    </div>
+
+                                    <div class="flex justify-between border-t pt-2">
+                                        <span class="font-bold">
+                                            Cambio:
+                                        </span>
+
+                                        <strong class="text-emerald-600">
+                                            {{ formatCurrency(changeAmount) }}
+                                        </strong>
+                                    </div>
+
+                                </template>
+
                             </div>
 
-                            <!-- 2. CASO: PAGO MENOR EN PÚBLICO EN GENERAL -->
-                            <div v-else-if="isGeneralPublic" class="text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                            <!-- ========================= -->
+                            <!-- PÚBLICO GENERAL SIN COMPLETAR -->
+                            <!-- ========================= -->
+                            <div
+                                v-else-if="isGeneralPublic"
+                                class="text-xs text-amber-700 dark:text-amber-400 space-y-1"
+                            >
+
                                 <div class="flex items-center gap-1 font-bold text-sm">
                                     <i class="pi pi-exclamation-triangle"></i>
                                     <span>Pago incompleto</span>
                                 </div>
-                                <p>El cliente <strong>Público en General</strong> no cuenta con crédito. Debe liquidar el total de <strong>{{ formatCurrency(amountDue) }}</strong> (Faltan {{ formatCurrency(missingAmount) }}).</p>
+
+                                <p>
+                                    El cliente
+                                    <strong>Público General</strong>
+                                    debe liquidar el total.
+
+                                </p>
+
+                                <div class="flex justify-between mt-2">
+                                    <span>Total:</span>
+                                    <strong>{{ formatCurrency(amountDue) }}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Recibido:</span>
+                                    <strong>{{ formatCurrency(paid) }}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Faltante:</span>
+                                    <strong class="text-red-600">
+                                        {{ formatCurrency(missingAmount) }}
+                                    </strong>
+                                </div>
+
                             </div>
 
-                            <!-- 3. CASO: PAGO MENOR EN CLIENTE CON CRÉDITO SUFICIENTE -->
-                            <div v-else-if="hasEnoughCredit" class="text-xs text-blue-700 dark:text-blue-400 space-y-1">
+                            <!-- ========================= -->
+                            <!-- CLIENTE CON CRÉDITO -->
+                            <!-- ========================= -->
+                            <div
+                                v-else-if="hasEnoughCredit"
+                                class="text-xs text-blue-700 dark:text-blue-400 space-y-2"
+                            >
+
                                 <div class="flex items-center gap-1 font-bold text-sm">
                                     <i class="pi pi-credit-card"></i>
-                                    <span>Venta a Crédito Aprobada</span>
+                                    <span>Venta a crédito</span>
                                 </div>
-                                <p>El cliente pagará {{ formatCurrency(paid) }} y la diferencia de <strong>{{ formatCurrency(missingAmount) }}</strong> se cargará a su cuenta de crédito.</p>
+
+                                <div class="flex justify-between">
+                                    <span>Total:</span>
+                                    <strong>{{ formatCurrency(amountDue) }}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Recibido:</span>
+                                    <strong>{{ formatCurrency(paid) }}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Se cargará a crédito:</span>
+                                    <strong class="text-blue-700">
+                                        {{ formatCurrency(missingAmount) }}
+                                    </strong>
+                                </div>
+
                             </div>
 
-                            <!-- 4. CASO: PAGO MENOR EN CLIENTE SIN CRÉDITO SUFICIENTE -->
-                            <div v-else class="text-xs text-red-700 dark:text-red-400 space-y-1">
+                            <!-- ========================= -->
+                            <!-- CRÉDITO INSUFICIENTE -->
+                            <!-- ========================= -->
+                            <div
+                                v-else
+                                class="text-xs text-red-700 dark:text-red-400 space-y-2"
+                            >
+
                                 <div class="flex items-center gap-1 font-bold text-sm">
                                     <i class="pi pi-times-circle"></i>
-                                    <span>Crédito Insuficiente</span>
+                                    <span>Crédito insuficiente</span>
                                 </div>
-                                <p>Faltan {{ formatCurrency(missingAmount) }} y el cliente no tiene suficiente límite de crédito disponible.</p>
+
+                                <div class="flex justify-between">
+                                    <span>Total:</span>
+                                    <strong>{{ formatCurrency(amountDue) }}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Recibido:</span>
+                                    <strong>{{ formatCurrency(paid) }}</strong>
+                                </div>
+
+                                <div class="flex justify-between">
+                                    <span>Faltante:</span>
+                                    <strong class="text-red-600">
+                                        {{ formatCurrency(missingAmount) }}
+                                    </strong>
+                                </div>
+
                             </div>
+
                         </div>
+                    </div>
+                    <div
+                        class="shrink-0 p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                    >
                         <button
                             @click="finishSale"
                             :disabled="!canProcessSale"
@@ -1162,13 +1918,9 @@ const printTicket = (saleData) => {
                             <i :class="canProcessSale ? 'pi pi-check-circle' : 'pi pi-lock'"></i>
                             <span>{{ canProcessSale ? 'Finalizar venta' : 'Completar datos de pago' }}</span>
                         </button>
-
                     </div>
-
                 </div>
-
             </div>
-
         </div>
         <Dialog
             v-model:visible="showQuickCreateModal"
@@ -1178,120 +1930,88 @@ const printTicket = (saleData) => {
         >
             <div class="flex flex-col gap-4">
 
-
                 <!-- Vista previa OpenFoodFacts -->
                 <div
                     v-if="quickForm.image"
                     class="flex gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800"
                 >
-
                     <img
                         :src="quickForm.image"
                         class="w-20 h-20 rounded-lg object-cover border"
                     />
-
                     <div class="flex flex-col justify-center">
-
                         <span class="font-bold text-sm">
                             {{ quickForm.name }}
                         </span>
-
                         <span
                             v-if="quickForm.brand"
                             class="text-xs text-slate-500"
                         >
                             {{ quickForm.brand }}
                         </span>
-
                         <span
                             v-if="quickForm.description"
                             class="text-xs text-slate-400 line-clamp-2 mt-1"
                         >
                             {{ quickForm.description }}
                         </span>
-
                     </div>
-
                 </div>
-
 
                 <!-- Código de barras -->
                 <div>
-
                     <label class="text-sm font-medium">
                         Código de barras
                     </label>
-
                     <InputText
                         v-model="quickForm.barcode"
                         disabled
                         class="w-full"
                     />
-
                 </div>
-
-
 
                 <!-- Nombre -->
                 <div>
-
                     <label class="text-sm font-medium">
                         Nombre
                     </label>
-
                     <InputText
                         v-model="quickForm.name"
                         class="w-full"
                         placeholder="Nombre del producto"
                     />
-
                 </div>
-
-
 
                 <!-- Marca -->
                 <div>
-
                     <label class="text-sm font-medium">
                         Marca
                     </label>
-
                     <InputText
                         v-model="quickForm.brand"
                         class="w-full"
                         placeholder="Marca"
                     />
-
                 </div>
-
-
 
                 <!-- Precio -->
                 <div>
-
                     <label class="text-sm font-medium">
                         Precio venta
                     </label>
-
                     <InputText
                         v-model="quickForm.price"
                         type="number"
                         class="w-full"
                         placeholder="0.00"
                     />
-
                 </div>
-
-
 
                 <!-- Categoría -->
                 <div>
-
                     <label class="text-sm font-medium">
                         Categoría
                     </label>
-
-
                     <Select
                         v-model="quickForm.category_id"
                         :options="categories"
@@ -1301,62 +2021,37 @@ const printTicket = (saleData) => {
                         placeholder="Seleccionar categoría"
                         class="w-full"
                     >
-
-
                         <template #value="slotProps">
-
                             <span v-if="slotProps.value">
-
                                 {{
                                     categories.find(
                                         c => c.id === slotProps.value
                                     )?.name
                                 }}
-
                             </span>
-
-
                             <span v-else>
                                 Seleccionar categoría
                             </span>
-
-
                         </template>
 
-
-
                         <template #option="slotProps">
-
                             <div class="flex justify-between w-full">
-
                                 <span>
                                     {{ slotProps.option.name }}
                                 </span>
-
-
                                 <span class="text-xs text-slate-400">
                                     #{{ slotProps.option.id }}
                                 </span>
-
                             </div>
-
                         </template>
-
-
                     </Select>
-
-
                 </div>
-
-
 
                 <!-- Descripción -->
                 <div>
-
                     <label class="text-sm font-medium">
                         Descripción
                     </label>
-
                     <textarea
                         v-model="quickForm.description"
                         rows="3"
@@ -1369,33 +2064,74 @@ const printTicket = (saleData) => {
                         "
                         placeholder="Descripción"
                     ></textarea>
-
                 </div>
-
-
 
                 <!-- Botones -->
                 <div class="flex justify-end gap-2 pt-2">
-
                     <Button
                         label="Cancelar"
                         severity="secondary"
                         @click="showQuickCreateModal = false"
                     />
-
-
                     <Button
                         label="Guardar"
                         icon="pi pi-check"
                         severity="success"
                         @click="createProductFromBarcode"
                     />
+                </div>
+            </div>
+        </Dialog>
+        <Dialog
+            v-model:visible="showUnitSelector"
+            modal
+            header="Seleccionar tipo de venta"
+            :style="{ width: '420px' }"
+        >
+            <div
+                v-if="selectedProduct"
+                class="space-y-5"
+            >
 
+                <div class="text-center">
+                    <h2 class="text-xl font-bold">
+                        {{ selectedProduct.name }}
+                    </h2>
+                    <p class="text-slate-500 text-sm mt-2">
+                        Selecciona la presentación de venta
+                    </p>
                 </div>
 
+                <div class="grid gap-3">
+                    <Button
+                        v-for="unit in selectedProduct.product_units"
+                        :key="unit.id"
+                        class="w-full flex justify-between items-center"
+                        outlined
+                        @click="addSelectedUnit(unit)"
+                    >
+                        <span class="flex items-center gap-2">
+                            <i
+                                :class="{
+                                    'pi pi-box':
+                                        unit.sale_type_id === 1,
+                                    'pi pi-weight':
+                                        unit.sale_type_id === 2,
+                                    'pi pi-arrows-h':
+                                        unit.sale_type_id === 3,
+                                    'pi pi-shopping-bag':
+                                        unit.sale_type_id === 4
+                                }"
+                            ></i>
 
+                            {{ unit.sale_type?.name }}
+                        </span>
+                        <span class="font-bold">
+                            {{ formatCurrency(unit.price) }}
+                        </span>
+                    </Button>
+                </div>
             </div>
-
         </Dialog>
         <ConfirmPopup />
     </AppLayout>

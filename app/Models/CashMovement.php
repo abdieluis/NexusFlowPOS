@@ -14,6 +14,7 @@ class CashMovement extends Model
         'cash_register_id',
         'user_id',
         'type', // 'income', 'expense'
+        'payment_method_id',
         'amount',
         'description',
     ];

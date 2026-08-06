@@ -6,6 +6,7 @@ use App\Models\CashRegister;
 use App\Models\CashCut;
 use App\Models\Sale;
 use App\Models\CashMovement;
+use App\Models\PaymentMethods;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -30,8 +31,13 @@ class CashRegisterController extends Controller
         ->latest()
         ->get();
 
+        $paymentMethods = PaymentMethods::where('business_id', $user->business_id)
+            ->select('id', 'name')
+            ->get();
+
         return Inertia::render('CashRegisters/Index', [
             'registers' => $registers,
+            'paymentMethods' => $paymentMethods,
         ]);
     }
 
@@ -52,7 +58,7 @@ class CashRegisterController extends Controller
 
         CashRegister::create([
             'branch_id' => $user->branch_id ?? 1,
-            'opened_by' => $user->id, // <--- Pasamos el ID del usuario creador
+            'opened_by' => $user->id,
             'status'    => 'closed',
         ]);
 
@@ -115,15 +121,17 @@ class CashRegisterController extends Controller
     public function storeMovement(Request $request, CashRegister $cashRegister)
     {
         $validated = $request->validate([
-            'type'        => ['required', 'in:income,expense'],
-            'amount'      => ['required', 'numeric', 'min:0.01'],
-            'description' => ['nullable', 'string', 'max:500'],
+            'type' => ['required','in:income,expense'],
+            'payment_method_id' => ['required','exists:payment_methods,id'],
+            'amount' => ['required','numeric','min:0.01'],
+            'description' => ['nullable','string','max:500'],
         ]);
 
         $cashRegister->movements()->create([
-            'user_id'     => Auth::id(),
-            'type'        => $validated['type'],
-            'amount'      => $validated['amount'],
+            'user_id' => Auth::id(),
+            'type' => $validated['type'],
+            'payment_method_id' => $validated['payment_method_id'],
+            'amount' => $validated['amount'],
             'description' => $validated['description'],
         ]);
 
@@ -139,6 +147,7 @@ class CashRegisterController extends Controller
             'email_to_send' => ['nullable', 'email'],
         ]);
 
+
         // 1. Obtener el último corte de esta caja para saber desde dónde contar
         $lastCut = CashCut::where('cash_register_id', $cashRegister->id)
             ->latest()
@@ -146,21 +155,39 @@ class CashRegisterController extends Controller
 
         // 2. Traer las ventas de esta caja creadas después del último corte (o todas si es el primero)
         $salesQuery = Sale::where('cash_register_id', $cashRegister->id)
-            ->where('status', 'completed');
+        ->where('status', 'completed')
+        ->whereBetween('created_at', [
+            $cashRegister->opened_at,
+            now()
+        ]);
 
         if ($lastCut) {
-            $salesQuery->where('id', '>', $lastCut->id); // O por created_at si prefieres, pero por ID evita líos de Zona Horaria
+            $salesQuery->where('created_at', '>', $lastCut->created_at);
         }
+
+
 
         $sales = $salesQuery->get();
 
-        // 3. Filtrar montos (Asegúrate que en la BD el valor sea 'cash' o 'efectivo')
-        $cashSales     = $sales->whereIn('payment_method', ['cash', 'efectivo'])->sum('paid');
-        $cardSales     = $sales->whereIn('payment_method', ['card', 'tarjeta'])->sum('paid');
-        $transferSales = $sales->whereIn('payment_method', ['transfer', 'transferencia'])->sum('paid');
+        $cashId = PaymentMethods::where('code', 'cash')->value('id');
+        $cardId = PaymentMethods::where('code', 'card')->value('id');
+        $transferId = PaymentMethods::where('code', 'transfer')->value('id');
+
+        // Ventas por método de pago
+        $cashSales = $sales
+            ->where('payment_method_id', $cashId)
+            ->sum('paid');
+
+        $cardSales = $sales
+            ->where('payment_method_id', $cardId)
+            ->sum('paid');
+
+        $transferSales = $sales
+            ->where('payment_method_id', $transferId)
+            ->sum('paid');
 
         // Si no usas la columna 'paid', cámbialo por 'total'
-        $totalSales = $cashSales + $cardSales + $transferSales;
+        $totalSales = $sales->sum('paid');
 
         // 4. Movimientos de la sesión
         $movementsQuery = CashMovement::where('cash_register_id', $cashRegister->id);

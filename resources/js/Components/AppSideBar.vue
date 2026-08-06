@@ -2,6 +2,7 @@
 import AppMenu from '@/Layouts/AppMenu.vue';
 import { router } from '@inertiajs/vue3';
 import { usePosStore } from '@/stores/pos';
+import logoN from '@/assets/images/nexusflow_pos_logo_N.png';
 
 const pos = usePosStore();
 
@@ -27,7 +28,7 @@ const logout = () => {
                 shrink-0
                 h-screen
                 sticky
-                top-16
+                top-0
                 transition-all
                 duration-300
 
@@ -76,18 +77,20 @@ const logout = () => {
                     class="
                         w-10
                         h-10
-                        bg-emerald-700
-                        text-white
                         flex
                         items-center
                         justify-center
                         rounded-xl
                         shadow-sm
-                        font-black
-                        text-lg
+                        overflow-hidden
+                        shrink-0
                     "
                 >
-                    N
+                    <img
+                        :src="logoN"
+                        alt="NexusFlow Logo"
+                        class="w-full h-full object-cover"
+                    />
                 </div>
 
                 <!-- TEXT -->

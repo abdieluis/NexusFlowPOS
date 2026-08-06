@@ -136,15 +136,15 @@ class InventoryController extends Controller
 
             // Registrar movimiento
             InventoryMovement::create([
-                'branch_id'      => $inventory->branch_id,
-                'product_id'     => $inventory->product_id,
-                'variant_id'     => $inventory->variant_id,
-                'type'           => $request->type,
-                'quantity'       => $quantity,
-                'reference_type' => 'inventory',
-                'reference_id'   => $inventory->id,
-                'notes'          => $request->reason,
-                'created_by'     => auth()->id(),
+            'branch_id'             => $inventory->branch_id,
+            'product_id'            => $inventory->product_id,
+            'product_variant_id'    => $inventory->product_variant_id,
+            'type'                  => $request->type,
+            'quantity'              => $quantity,
+            'reference_type'        => 'inventory',
+            'reference_id'          => $inventory->id,
+            'notes'                 => $request->reason,
+            'created_by'            => auth()->id(),
             ]);
         });
 

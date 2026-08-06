@@ -18,6 +18,11 @@ class Customer extends Model
         'email',
         'address',
         'credit_limit',
-        'curret_balance'
+        'current_balance'
     ];
+
+    public function creditMovements()
+    {
+        return $this->hasMany(CustomerCreditMovement::class);
+    }
 }

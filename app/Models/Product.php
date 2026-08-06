@@ -26,8 +26,19 @@ class Product extends Model
         'stock_alert',
         'track_stock',
         'has_variants',
+        'is_weighted',
+        'unit',
         'status',
     ];
+
+    protected $appends = ['stock'];
+
+    public function getStockAttribute()
+    {
+        return $this->relationLoaded('inventories')
+            ? (float) $this->inventories->sum('stock')
+            : (float) $this->inventories()->sum('stock');
+    }
 
     public function inventories()
     {
@@ -47,6 +58,28 @@ class Product extends Model
     public function variants()
     {
         return $this->hasMany(ProductVariant::class);
+    }
+
+    public function productUnits()
+    {
+        return $this->hasMany(ProductUnit::class);
+    }
+
+    public function packageOpenings()
+    {
+        return $this->hasMany(ProductPackageOpening::class);
+    }
+
+    public function defaultUnit()
+    {
+        return $this->hasOne(ProductUnit::class)
+            ->where('is_default', true);
+    }
+
+    public function saleUnits()
+    {
+        return $this->hasMany(ProductUnit::class)
+            ->orderByDesc('is_default');
     }
 
 }

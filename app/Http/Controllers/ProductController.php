@@ -15,6 +15,10 @@ use App\Services\OpenFoodFactsService;
 use App\Models\Inventory;
 use Illuminate\Support\Facades\DB;
 use App\Models\InventoryMovement;
+use App\Models\ProductUnit;
+use App\Models\ProductPackageOpening;
+use App\Services\CategoryResolverService;
+use App\Models\SaleType;
 
 class ProductController extends Controller
 {
@@ -23,9 +27,10 @@ class ProductController extends Controller
      */
     public function index()
     {
-        $products = Product::with('category')
+        $products = Product::with(['category','productUnits.saleType'])
             ->latest()
             ->get();
+
 
         return Inertia::render('Products/Index', [
             'products' => $products,
@@ -47,7 +52,8 @@ class ProductController extends Controller
 
         return Inertia::render('Products/Create', [
             'categories' => $categories,
-            'taxes' => $taxes
+            'taxes' => $taxes,
+            'saleTypes' => SaleType::orderBy('id')->get(),
         ]);
     }
 
@@ -60,12 +66,26 @@ class ProductController extends Controller
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|max:255',
             'sku' => 'required|max:255|unique:products,sku',
-            'price' => 'required|numeric|min:0',
+            'price' => 'nullable|numeric|min:0',
             'image' => 'nullable|string|max:1000',
             'stock' => 'nullable|integer|min:0',
+            'product_units' => 'nullable|array',
+            'product_units.*.sale_type_id' =>
+                'required|exists:sale_types,id',
+            'product_units.*.price' =>
+                'required|numeric|min:0',
+            'product_units.*.conversion_factor' =>
+                'nullable|numeric|min:0.001',
         ]);
 
-        $price = (float) $request->price;
+        $price = (float) ($request->price ?? 0);
+        if ($request->filled('product_units')) {
+            $defaultUnit = collect($request->product_units)
+                ->firstWhere('is_default', true);
+            if ($defaultUnit) {
+                $price = (float)$defaultUnit['price'];
+            }
+        }
 
         $cost = $request->filled('cost')
             ? (float) $request->cost
@@ -97,8 +117,36 @@ class ProductController extends Controller
 
             ]);
 
-            $branchId = auth()->user()->branch_id ?? 1;
+            // Crear unidades de venta
+            if ($request->filled('product_units')) {
+                foreach ($request->product_units as $unit) {
+                    if (!$unit['sale_type_id']) {
+                        continue;
+                    }
+                    ProductUnit::create([
+                        'product_id' => $product->id,
+                        'sale_type_id' => $unit['sale_type_id'],
+                        'conversion_factor' =>
+                            $unit['conversion_factor'] ?? 1,
+                        'price' => $unit['price'],
+                        'is_default' =>
+                            $unit['is_default'] ?? false,
+                        'created_by' => auth()->id(),
+                    ]);
+                }
 
+                // Sincronizar precio viejo del producto
+                $defaultUnit = collect($request->product_units)
+                    ->firstWhere('is_default', true);
+
+                if ($defaultUnit) {
+                    $product->update([
+                        'price' => $defaultUnit['price']
+                    ]);
+                }
+            }
+
+            $branchId = auth()->user()->branch_id ?? 1;
             $initialStock = $request->stock ?? 0;
 
             $inventory = Inventory::firstOrCreate(
@@ -107,7 +155,7 @@ class ProductController extends Controller
                     'branch_id' => $branchId,
                 ],
                 [
-                    'variant_id' => null,
+                    'product_variant_id' => null,
                     'stock' => $initialStock,
                 ]
             );
@@ -117,15 +165,15 @@ class ProductController extends Controller
             if ($initialStock > 0) {
 
                 InventoryMovement::create([
-                    'branch_id'      => $branchId,
-                    'product_id'     => $product->id,
-                    'variant_id'     => null,
-                    'type'           => 'purchase',
-                    'quantity'       => $initialStock,
-                    'reference_type' => 'product',
-                    'reference_id'   => $product->id,
-                    'notes'          => 'Stock inicial al crear producto',
-                    'created_by'     => auth()->id(),
+                    'branch_id'             => $branchId,
+                    'product_id'            => $product->id,
+                    'product_variant_id'    => null,
+                    'type'                  => 'purchase',
+                    'quantity'              => $initialStock,
+                    'reference_type'        => 'product',
+                    'reference_id'          => $product->id,
+                    'notes'                 => 'Stock inicial al crear producto',
+                    'created_by'            => auth()->id(),
                 ]);
 
             }
@@ -151,13 +199,18 @@ class ProductController extends Controller
      */
     public function edit(Product $product)
     {
-        // Cargamos los inventarios del producto con sus respectivas sucursales
-        $product->load(['inventories.branch']);
+        $product->load([
+            'inventories.branch',
+            'productUnits.saleType',
+            'packageOpenings',
+            'variants'
+        ]);
 
         return inertia('Products/Edit', [
-            'product'    => $product,
+            'product' => $product,
             'categories' => Category::all(),
-            'taxes'      => Tax::all(),
+            'taxes' => Tax::all(),
+            'saleTypes' => SaleType::orderBy('id')->get(),
         ]);
     }
 
@@ -222,15 +275,15 @@ class ProductController extends Controller
 
                 // Registrar movimiento
                 InventoryMovement::create([
-                    'branch_id'      => $branchId,
-                    'product_id'     => $product->id,
-                    'variant_id'     => null,
-                    'type'           => 'adjustment',
-                    'quantity'       => $quantityToAdd,
-                    'reference_type' => 'product',
-                    'reference_id'   => $product->id,
-                    'notes'          => 'Ajuste manual desde edición de producto. Stock anterior: ' . $previousStock . ' Stock nuevo: ' . $newStock,
-                    'created_by'     => auth()->id(),
+                    'branch_id'             => $branchId,
+                    'product_id'            => $product->id,
+                    'product_variant_id'    => null,
+                    'type'                  => 'adjustment',
+                    'quantity'              => $quantityToAdd,
+                    'reference_type'        => 'product',
+                    'reference_id'          => $product->id,
+                    'notes'                 => 'Ajuste manual desde edición de producto. Stock anterior: ' . $previousStock . ' Stock nuevo: ' . $newStock,
+                    'created_by'            => auth()->id(),
                 ]);
             }
 
@@ -238,6 +291,47 @@ class ProductController extends Controller
             unset($validated['add_stock']);
             $product->update($validated);
         });
+
+        if ($request->has('deleted_units')) {
+            ProductUnit::whereIn(
+                'id',
+                $request->deleted_units
+            )
+            ->where('product_id',$product->id)
+            ->delete();
+        }
+
+        if ($request->has('product_units')) {
+            foreach ($request->product_units as $unit) {
+                if (!empty($unit['id'])) {
+                    $productUnit = ProductUnit::find($unit['id']);
+                    if ($productUnit) {
+                        $productUnit->update([
+                            'sale_type_id' => $unit['sale_type_id'],
+                            'conversion_factor' => $unit['conversion_factor'] ?? 1,
+                            'price' => $unit['price'],
+                            'is_default' => $unit['is_default'] ?? false,
+                        ]);
+                    }
+                } else {
+                    ProductUnit::create([
+                        'product_id' => $product->id,
+                        'sale_type_id' => $unit['sale_type_id'],
+                        'conversion_factor' => $unit['conversion_factor'] ?? 1,
+                        'price' => $unit['price'],
+                        'is_default' => $unit['is_default'] ?? false,
+                        'created_by' => auth()->id(),
+                    ]);
+                }
+            }
+            $defaultUnit = collect($request->product_units)
+                ->firstWhere('is_default', true);
+            if ($defaultUnit) {
+                $product->update([
+                    'price' => $defaultUnit['price']
+                ]);
+            }
+        }
 
         $product->load('inventories');
 
@@ -253,12 +347,74 @@ class ProductController extends Controller
             ->with('success', 'Producto eliminado correctamente.');
     }
 
+    // public function searchBarcode(Request $request)
+    // {
+    //     $service = new OpenFoodFactsService();
+
+    //     return response()->json(
+    //         $service->search($request->barcode)
+    //     );
+    // }
+
     public function searchBarcode(Request $request)
     {
         $service = new OpenFoodFactsService();
+        $data = $service->search($request->barcode);
+        $resolver = new CategoryResolverService();
 
-        return response()->json(
-            $service->search($request->barcode)
+        $categoryId = $resolver->resolve(
+            $data['categories'] ?? []
         );
+
+        $data['category_id'] = $categoryId;
+        return response()->json($data);
+    }
+
+    /**
+     * Importar productos desde archivo Excel/CSV.
+     */
+    public function import(Request $request)
+    {
+        set_time_limit(0);
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        try {
+            $import = new ProductsImport();
+            Excel::import($import, $request->file('file'));
+
+            $failures = $import->errors();
+
+            if ($failures->count() > 0) {
+                $errorMessages = [];
+                foreach ($failures as $failure) {
+                    foreach ($failure->errors() as $error) {
+                        $errorMessages[] = $error;
+                    }
+                }
+
+                // Si hubo errores controlados en algunas filas
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El archivo contiene errores en algunas filas.',
+                    'errors'  => $errorMessages
+                ], 200);
+            }
+
+            // Si todo salió bien
+            return response()->json([
+                'success' => true,
+                'message' => 'Productos e inventarios importados correctamente.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            // Errores no controlados (ej. archivo dañado o error de BD)
+            return response()->json([
+                'success' => false,
+                'message' => 'Ocurrió un error al procesar el archivo.',
+                'errors'  => [$e->getMessage()]
+            ], 500);
+        }
     }
 }

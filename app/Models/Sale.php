@@ -23,6 +23,7 @@ class Sale extends Model
         'total',
         'paid',
         'change_amount',
+        'payment_method_id',
         'payment_status',
         'status',
         'sold_at',
