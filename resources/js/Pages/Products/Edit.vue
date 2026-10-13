@@ -66,91 +66,293 @@ const productForm = useForm({
     deleted_units:[]
 });
 
+// ============================================================
+// CONFIGURACIÓN DE UNIDADES DE VENTA
+// ============================================================
+
+// Obtener información del tipo de venta
+const getSaleType = (saleTypeId) => {
+    return props.saleTypes.find(type => type.id === saleTypeId);
+};
+
+// Texto explicativo según el tipo de venta
 const getConversionLabel = (saleTypeId) => {
+
     switch (saleTypeId) {
+
+        // PIEZA
         case 1:
-            return '1 = una pieza';
+            return '1 unidad física del producto';
+
+        // KILOGRAMO
         case 2:
-            return 'Cantidad de kilogramos';
+            return 'Cantidad en kilogramos';
+
+        // METRO
         case 3:
-            return 'Cantidad de metros';
+            return 'Cantidad en metros';
+
+        // PAQUETE
         case 4:
             return 'Cantidad de piezas que contiene el paquete';
+
         default:
             return '';
     }
 };
 
+
+// ============================================================
+// TIPOS DE VENTA DISPONIBLES
+// ============================================================
 const availableSaleTypes = computed(() => {
     return props.saleTypes.filter(type => {
-        return !productForm.product_units.some(unit => unit.sale_type_id === type.id);
+        return !productForm.product_units.some(
+            unit => unit.sale_type_id === type.id
+        );
     });
 });
 
+
+// ============================================================
+// ¿TIENE PIEZA?
+// ============================================================
+const hasPieceUnit = computed(() => {
+    return productForm.product_units.some(
+        unit => unit.sale_type_id === 1
+    );
+});
+
+
+// ============================================================
+// ¿TIENE PAQUETE?
+// ============================================================
+const hasPackageUnit = computed(() => {
+    return productForm.product_units.some(
+        unit => unit.sale_type_id === 4
+    );
+});
+
+// ============================================================
+// CAMBIO DE TIPO DE VENTA
+// ============================================================
+
 const saleTypeChanged = (unit) => {
+
     switch (unit.sale_type_id) {
+
+        // PIEZA
         case 1:
             unit.conversion_factor = 1;
-            break;
-        case 2:
-            unit.conversion_factor = 1;
-            break;
-        case 3:
-            unit.conversion_factor = 1;
-            break;
-        case 4:
-            if (unit.conversion_factor <= 1) {
-                unit.conversion_factor = 24;
+
+            // Si existe paquete, Pieza siempre es la unidad base
+            if (hasPackageUnit.value) {
+                setAsBasePiece(unit);
             }
 
             break;
+
+        // KILOGRAMO
+        case 2:
+            unit.conversion_factor = 1;
+            break;
+
+        // METRO
+        case 3:
+            unit.conversion_factor = 1;
+            break;
+
+        // PAQUETE
+        case 4:
+            if (!unit.conversion_factor || unit.conversion_factor < 2) {
+                unit.conversion_factor = null;
+            }
+            break;
     }
-    unit.price = unit.price ?? 0;
 };
 
-// AGREGAR UNIDAD DE VENTA
+
+// ============================================================
+// ESTABLECER PIEZA COMO UNIDAD BASE
+// ============================================================
+const setAsBasePiece = (pieceUnit) => {
+    productForm.product_units.forEach(unit => {
+        if (unit.sale_type_id === 1) {
+            unit.is_default = true;
+        } else {
+            unit.is_default = false;
+        }
+    });
+    productForm.price = pieceUnit.price;
+};
+
 const addProductUnit = () => {
-    if (!availableSaleTypes.value.length) {
-        toast.add({
-            severity:'warn',
-            summary:'Aviso',
-            detail:'Ya agregaste todos los tipos de venta disponibles.',
-            life:3000
-        });
+
+    // ========================================================
+    // 1. SI NO EXISTE PIEZA, AGREGAMOS PIEZA PRIMERO
+    // ========================================================
+
+    if (!hasPieceUnit.value) {
+
+        const pieceType = props.saleTypes.find(
+            type => type.id === 1
+        );
+
+        if (!pieceType) {
+            toast.add({
+                severity: 'error',
+                summary: 'Error',
+                detail: 'El tipo de venta Pieza no está configurado.',
+                life: 4000
+            });
+
+            return;
+        }
+
+        const newUnit = {
+            id: null,
+            sale_type_id: 1,
+            conversion_factor: 1,
+            price: 0,
+            is_default: true
+        };
+
+        productForm.product_units.push(newUnit);
+
+        productForm.price = newUnit.price;
+
         return;
     }
 
-    productForm.product_units.push({
-        id:null,
-        sale_type_id:availableSaleTypes.value[0].id,
-        conversion_factor:1,
-        price:0,
-        is_default:false,
-    });
-};
 
-// ELIMINAR UNIDAD
-// const removeProductUnit = (index)=>{
-//     productForm.product_units.splice(index,1);
-// };
+    // ========================================================
+    // 2. SI EXISTE PIEZA PERO NO PAQUETE,
+    //    AGREGAMOS PAQUETE
+    // ========================================================
+
+    if (!hasPackageUnit.value) {
+
+        const packageType = props.saleTypes.find(
+            type => type.id === 4
+        );
+
+        if (packageType) {
+
+            const newUnit = {
+                id: null,
+                sale_type_id: 1,
+
+                // Valor inicial.
+                // El usuario puede cambiarlo.
+                conversion_factor: 1,
+
+                price: 0,
+
+                is_default: false
+            };
+
+            productForm.product_units.push(newUnit);
+
+            return;
+        }
+    }
+
+
+    // ========================================================
+    // 3. SI YA EXISTEN PIEZA Y PAQUETE,
+    //    BUSCAMOS OTRA UNIDAD DISPONIBLE
+    // ========================================================
+
+    if (!availableSaleTypes.value.length) {
+
+        toast.add({
+            severity: 'warn',
+            summary: 'Aviso',
+            detail: 'Ya agregaste todos los tipos de venta disponibles.',
+            life: 3000
+        });
+
+        return;
+    }
+
+
+    const nextType = availableSaleTypes.value[0];
+
+
+    // ========================================================
+    // 4. CREAR NUEVA UNIDAD
+    // ========================================================
+
+    const newUnit = {
+
+        id: null,
+
+        sale_type_id: nextType.id,
+
+        conversion_factor: 1,
+
+        price: 0,
+
+        is_default: false
+
+    };
+
+
+    productForm.product_units.push(newUnit);
+
+};
 
 const removeProductUnit = (index) => {
 
     const unit = productForm.product_units[index];
 
-    // Si la unidad ya existe en BD guardamos el id
-    // para eliminarla después desde Laravel
+    // ========================================================
+    // NO PERMITIR ELIMINAR PIEZA SI EXISTE PAQUETE
+    // ========================================================
+
+    if (
+        unit.sale_type_id === 1 &&
+        hasPackageUnit.value
+    ) {
+
+        toast.add({
+            severity: 'warn',
+            summary: 'No se puede eliminar',
+            detail: 'No puedes eliminar la unidad Pieza mientras exista una unidad Paquete. El paquete depende de la pieza como unidad base.',
+            life: 4000
+        });
+
+        return;
+    }
+
+
+    // ========================================================
+    // GUARDAR ID PARA ELIMINAR DESDE LARAVEL
+    // ========================================================
+
     if (unit.id) {
         productForm.deleted_units.push(unit.id);
     }
 
-    productForm.product_units.splice(index,1);
+
+    // ========================================================
+    // ELIMINAR UNIDAD
+    // ========================================================
+
+    productForm.product_units.splice(index, 1);
 
 
-    // Si eliminamos la unidad predeterminada
-    // asignamos otra como principal
-    if (!productForm.product_units.some(unit => unit.is_default)
-        && productForm.product_units.length > 0) {
+    // ========================================================
+    // ASEGURAR QUE EXISTA UNA UNIDAD BASE
+    // ========================================================
+
+    if (
+        !productForm.product_units.some(
+            unit => unit.is_default
+        )
+        &&
+        productForm.product_units.length > 0
+    ) {
 
         productForm.product_units[0].is_default = true;
 
@@ -160,16 +362,118 @@ const removeProductUnit = (index) => {
 
 };
 
-// SELECCIONAR UNIDAD PRINCIPAL
-const setDefaultUnit = (index)=>{
-    productForm.product_units.forEach((unit,i)=>{
+const getAvailableOptionsForUnit = (currentUnit) => {
+
+    return props.saleTypes.filter(type => {
+
+        // No permitir duplicados
+        const alreadyUsed = productForm.product_units.some(unit => {
+
+            return unit !== currentUnit &&
+                   unit.sale_type_id === type.id;
+
+        });
+
+        if (alreadyUsed) {
+            return false;
+        }
+
+
+        // ------------------------------------------------
+        // PAQUETE
+        // ------------------------------------------------
+        //
+        // Un paquete en este sistema representa
+        // un conjunto de piezas.
+        //
+        // Por eso necesita existir Pieza.
+        //
+        if (type.id === 4) {
+
+            const hasPiece = productForm.product_units.some(unit => {
+
+                return unit !== currentUnit &&
+                       unit.sale_type_id === 1;
+
+            });
+
+            // Si estamos editando una unidad que actualmente
+            // es Pieza, también debemos permitir que conserve
+            // su configuración.
+            if (
+                currentUnit.sale_type_id === 1 &&
+                !hasPiece
+            ) {
+                return false;
+            }
+
+            if (!hasPiece) {
+                return false;
+            }
+        }
+
+
+        return true;
+
+    });
+
+};
+
+const setDefaultUnit = (index) => {
+
+    const selectedUnit = productForm.product_units[index];
+
+    // ========================================================
+    // SI EXISTE PIEZA, PIEZA SIEMPRE ES LA UNIDAD BASE
+    // ========================================================
+
+    if (
+        hasPieceUnit.value &&
+        selectedUnit.sale_type_id !== 1
+    ) {
+
+        const pieceIndex = productForm.product_units.findIndex(
+            unit => unit.sale_type_id === 1
+        );
+
+        productForm.product_units.forEach((unit, i) => {
+            unit.is_default = i === pieceIndex;
+        });
+
+        const pieceUnit = productForm.product_units[pieceIndex];
+
+        if (pieceUnit) {
+            productForm.price = pieceUnit.price;
+        }
+
+        toast.add({
+            severity: 'info',
+            summary: 'Unidad base',
+            detail: 'Cuando el producto se vende por pieza y paquete, la pieza es la unidad base.',
+            life: 3500
+        });
+
+        return;
+    }
+
+
+    // ========================================================
+    // COMPORTAMIENTO NORMAL
+    // ========================================================
+
+    productForm.product_units.forEach((unit, i) => {
         unit.is_default = i === index;
     });
 
+
     const defaultUnit = productForm.product_units[index];
-    if(defaultUnit){
+
+    if (defaultUnit) {
+
         productForm.price = defaultUnit.price;
+
     }
+
 };
 
 // CAMBIO DE PRECIO DE UNIDAD PRINCIPAL
@@ -182,6 +486,51 @@ const updateUnitPrice = (index)=>{
 
 // GUARDAR
 const saveProduct = () => {
+    // ========================================================
+    // VALIDAR PAQUETES
+    // ========================================================
+
+    const invalidPackage = productForm.product_units.some(unit =>
+        unit.sale_type_id === 4 &&
+        (
+            unit.conversion_factor === null ||
+            unit.conversion_factor === undefined ||
+            Number(unit.conversion_factor) < 2
+        )
+    );
+
+    if (invalidPackage) {
+
+        toast.add({
+            severity: 'warn',
+            summary: 'Paquete incompleto',
+            detail: 'Debes indicar cuántas piezas contiene cada paquete.',
+            life: 4000
+        });
+
+        return;
+    }
+
+
+    // ========================================================
+    // VALIDAR PIEZA + PAQUETE
+    // ========================================================
+
+    if (
+        hasPackageUnit.value &&
+        !hasPieceUnit.value
+    ) {
+
+        toast.add({
+            severity: 'error',
+            summary: 'Configuración inválida',
+            detail: 'Una unidad Paquete requiere una unidad Pieza como unidad base.',
+            life: 4000
+        });
+
+        return;
+    }
+    
     productForm.put(route('products.update', props.product.id), {
         preserveScroll:true,
         onSuccess:()=>{
@@ -504,13 +853,13 @@ const goToIndex = ()=>{
                                             Tipo de venta
                                         </th>
                                         <th class="p-3 text-center">
-                                            Equivale a
+                                            Equivalencia
                                         </th>
                                         <th class="p-3 text-center">
                                             Precio de venta
                                         </th>
                                         <th class="p-3 text-center">
-                                            Predeterminado
+                                            Unidad base
                                         </th>
                                         <th class="p-3 w-16"></th>
                                     </tr>
@@ -527,7 +876,7 @@ const goToIndex = ()=>{
                                         <td class="p-3 w-72">
                                             <Select
                                                 v-model="unit.sale_type_id"
-                                                :options="saleTypes"
+                                                :options="getAvailableOptionsForUnit(unit)"
                                                 optionLabel="name"
                                                 optionValue="id"
                                                 fluid
@@ -540,7 +889,7 @@ const goToIndex = ()=>{
                                             <InputNumber
                                                 v-model="unit.conversion_factor"
                                                 class="w-full"
-                                                :min="1"
+                                                :min="unit.sale_type_id === 4 ? 2 : 1"
                                                 :useGrouping="false"
                                             />
                                             <small class="block mt-2 text-slate-500 dark:text-slate-400">

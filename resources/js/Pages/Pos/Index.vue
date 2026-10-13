@@ -5,6 +5,7 @@ import { Head } from '@inertiajs/vue3';
 import axios from 'axios';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
+import InputNumber from 'primevue/inputnumber';
 import Button from 'primevue/button';
 import Select from 'primevue/select';
 import ConfirmPopup from 'primevue/confirmpopup';
@@ -57,7 +58,8 @@ const paid = ref(null);
 const selectedCustomer = ref(1);
 const nextTransactionNumber = ref(2);
 const pos = usePosStore();
-const creditPayment = ref(0);
+// const creditPayment = ref(0);
+const showPaymentDialog = ref(false);
 
 const defaultPaymentMethod = computed(() => {
     return props.paymentMethods.find(
@@ -130,7 +132,7 @@ const formatStock = (product) => {
 
     // Caso 2: Mayor o igual a 1 (ejemplo: 3.00 -> 3 kg/mts)
     // Number() remueve ceros innecesarios a la derecha (ej: 3.50 -> 3.5)
-    return `${Number(rawStock.toFixed(3))} kg/mts`;
+    return `${Number(rawStock.toFixed(3))} kg`;
 };
 
 const listenToScale = async () => {
@@ -221,18 +223,18 @@ const cart = computed(() => {
     return currentTransaction.value?.cart ?? [];
 });
 
-const customerDebt = computed(()=>{
-    return Number(
-        selectedCustomerObj.value?.current_balance ?? 0
-    );
-});
+// const customerDebt = computed(()=>{
+//     return Number(
+//         selectedCustomerObj.value?.current_balance ?? 0
+//     );
+// });
 
-const remainingCreditPayment = computed(()=>{
-    return Math.min(
-        Number(creditPayment.value),
-        customerDebt.value
-    );
-});
+// const remainingCreditPayment = computed(()=>{
+//     return Math.min(
+//         Number(creditPayment.value),
+//         customerDebt.value
+//     );
+// });
 
 const quickForm = ref({
     barcode: '',
@@ -248,6 +250,41 @@ const quickForm = ref({
 const isCashPayment = computed(() => {
     return paymentMethod.value === defaultPaymentMethod.value;
 });
+
+const openPaymentDialog = () => {
+
+    if (!isRegisterOpen.value) {
+        toast.add({
+            severity: 'error',
+            summary: 'Caja Cerrada',
+            detail: 'Abre un turno para realizar ventas.',
+            life: 3000
+        });
+
+        return;
+    }
+
+    if (cart.value.length === 0) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Carrito vacío',
+            detail: 'Agrega al menos un producto antes de cobrar.',
+            life: 3000
+        });
+
+        return;
+    }
+
+    // Si es efectivo comenzamos sin monto recibido.
+    // Si es otro método, se considera pagado el total.
+    if (isCashPayment.value) {
+        paid.value = null;
+    } else {
+        paid.value = Number(amountDue.value);
+    }
+
+    showPaymentDialog.value = true;
+};
 
 watch(paymentMethod, (method) => {
 
@@ -933,6 +970,7 @@ const finishSale = async () => {
         paid.value = null;
         paymentMethod.value = defaultPaymentMethod.value;
         selectedCustomer.value = props.customers.find(c => c.id === 1)?.id ?? null;
+        showPaymentDialog.value = false;
 
     } catch (error) {
         console.error("Error al registrar venta:", error);
@@ -1212,7 +1250,7 @@ const printTicket = (saleData) => {
         >
             <div class="flex items-center gap-3 font-semibold text-sm">
                 <i class="pi pi-exclamation-triangle text-xl text-amber-500"></i>
-                <span>Atención: No hay una caja abierta actualmente. Debes abrir un turno para poder cobras y realizar ventas.</span>
+                <span>Atención: No hay una caja abierta actualmente. Debes abrir un turno para poder cobra y realizar ventas.</span>
             </div>
             <a
                 href="/cash-registers"
@@ -1598,316 +1636,11 @@ const printTicket = (saleData) => {
                                 <span> Abrir cajón</span>
                             </button>
                         </div>
-
-                        <div>
-                            <label class="text-sm font-semibold">
-                                Cliente
-                            </label>
-                            <Select
-                                v-model="selectedCustomer"
-                                :options="props.customers"
-                                optionLabel="name"
-                                optionValue="id"
-                                placeholder="Cliente público general"
-                                class="w-full"
-                                showClear
-                            />
-                        </div>
-
-                        <div
-                            v-if="!isGeneralPublic"
-                            class="p-3 rounded-xl"
-                        >
-                            <Message severity="secondary" :closable="false">Crédito disponible:<strong>{{formatCurrency(availableCredit)}}</strong></Message>
-                        </div>
-
-                        <div>
-                            <label class="text-sm font-semibold">Método de pago</label>
-                            <Select
-                                v-model="paymentMethod"
-                                :options="props.paymentMethods"
-                                optionLabel="name"
-                                optionValue="id"
-                                placeholder="Seleccionar método de pago"
-                                class="w-full"
-                            />
-                        </div>
-
-                        <div>
-                            <label class="text-sm font-semibold">
-                                Pago recibido
-                            </label>
-                            <InputNumber
-                                v-model="paid"
-                                mode="decimal"
-                                :min="0"
-                                :minFractionDigits="2"
-                                :maxFractionDigits="2"
-                                :updateOnInput="true"
-                                class="w-full"
-                                placeholder="0.00"
-                            />
-                        </div>
-                        <!-- DESGLOSE Y ALERTAS EN TIEMPO REAL
-                        <div
-                            v-if="paid !== null && paid !== '' && Number(paid) > 0"
-                            class="p-4 rounded-2xl border transition-all mt-3"
-                            :class="{
-                                'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800': Number(paid) >= Number(amountDue),
-                                'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800': Number(paid) < Number(amountDue) && isGeneralPublic,
-                                'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800': Number(paid) < Number(amountDue) && !isGeneralPublic && hasEnoughCredit,
-                                'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800': Number(paid) < Number(amountDue) && !isGeneralPublic && !hasEnoughCredit
-                            }"
-                        >
-                            1. CASO: PAGO MAYOR O IGUAL AL TOTAL
-                            <div
-                                v-if="Number(paid) >= Number(amountDue)"
-                                class="space-y-2 text-sm"
-                            >
-
-                                <div class="flex justify-between">
-                                    <span>Total compra:</span>
-                                    <strong>{{formatCurrency(amountDue)}}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Pago recibido:</span>
-                                    <strong>{{formatCurrency(paid)}}</strong>
-                                </div>
-
-                                <div
-                                    v-if="excessPayment > 0 && !isGeneralPublic"
-                                    class="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700"
-                                >
-                                    <i class="pi pi-info-circle"></i>
-                                    El cliente cubre su compra y tiene un abono extra a crédito de:
-                                    <strong>
-                                        {{formatCurrency(excessPayment)}}
-                                    </strong>
-                                </div>
-
-                                <div class="flex justify-between border-t pt-2">
-                                    <span class="font-bold">
-                                        Pago aplicado:
-                                    </span>
-                                    <strong>
-                                        {{formatCurrency(amountDue)}}
-                                    </strong>
-                                </div>
-                            </div>
-
-                            2. CASO: PAGO MENOR EN PÚBLICO EN GENERAL
-                            <div v-else-if="isGeneralPublic" class="text-xs text-amber-700 dark:text-amber-400 space-y-1">
-                                <div class="flex items-center gap-1 font-bold text-sm">
-                                    <i class="pi pi-exclamation-triangle"></i>
-                                    <span>Pago incompleto</span>
-                                </div>
-                                <p>El cliente <strong>Público en General</strong> no cuenta con crédito. Debe liquidar el total de <strong>{{ formatCurrency(amountDue) }}</strong> (Faltan {{ formatCurrency(missingAmount) }}).</p>
-                            </div>
-
-                            3. CASO: PAGO MENOR EN CLIENTE CON CRÉDITO SUFICIENTE
-                            <div v-else-if="hasEnoughCredit" class="text-xs text-blue-700 dark:text-blue-400 space-y-1">
-                                <div class="flex items-center gap-1 font-bold text-sm">
-                                    <i class="pi pi-credit-card"></i>
-                                    <span>Venta a Crédito Aprobada</span>
-                                </div>
-                                <p>El cliente pagará {{ formatCurrency(paid) }} y la diferencia de <strong>{{ formatCurrency(missingAmount) }}</strong> se cargará a su cuenta de crédito.</p>
-                            </div>
-
-                            4. CASO: PAGO MENOR EN CLIENTE SIN CRÉDITO SUFICIENTE
-                            <div v-else class="text-xs text-red-700 dark:text-red-400 space-y-1">
-                                <div class="flex items-center gap-1 font-bold text-sm">
-                                    <i class="pi pi-times-circle"></i>
-                                    <span>Crédito Insuficiente</span>
-                                </div>
-                                <p>Faltan {{ formatCurrency(missingAmount) }} y el cliente no tiene suficiente límite de crédito disponible.</p>
-                            </div>
-                        </div> -->
-                        <!-- DESGLOSE Y ALERTAS EN TIEMPO REAL -->
-                        <div
-                            v-if="paid !== null && paid !== '' && Number(paid) > 0"
-                            class="p-4 rounded-2xl border transition-all mt-3"
-                            :class="{
-                                'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800': Number(paid) >= Number(amountDue),
-                                'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800': Number(paid) < Number(amountDue) && isGeneralPublic,
-                                'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800': Number(paid) < Number(amountDue) && !isGeneralPublic && hasEnoughCredit,
-                                'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800': Number(paid) < Number(amountDue) && !isGeneralPublic && !hasEnoughCredit
-                            }"
-                        >
-
-                            <!-- ========================= -->
-                            <!-- PAGO COMPLETO -->
-                            <!-- ========================= -->
-                            <div
-                                v-if="Number(paid) >= Number(amountDue)"
-                                class="space-y-2 text-sm"
-                            >
-
-                                <div class="flex justify-between">
-                                    <span>Total compra:</span>
-                                    <strong>{{ formatCurrency(amountDue) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Pago recibido:</span>
-                                    <strong>{{ formatCurrency(paid) }}</strong>
-                                </div>
-
-                                <!-- CLIENTE PÚBLICO GENERAL -->
-                                <template v-if="isGeneralPublic">
-
-                                    <div class="flex justify-between border-t pt-2">
-                                        <span class="font-bold">
-                                            Cambio:
-                                        </span>
-
-                                        <strong class="text-emerald-600">
-                                            {{ formatCurrency(changeAmount) }}
-                                        </strong>
-                                    </div>
-
-                                </template>
-
-                                <!-- CLIENTE CON CRÉDITO -->
-                                <template v-else>
-
-                                    <div
-                                        v-if="excessPayment > 0"
-                                        class="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700"
-                                    >
-                                        <i class="pi pi-info-circle"></i>
-
-                                        El cliente entregó
-                                        <strong>{{ formatCurrency(excessPayment) }}</strong>
-                                        adicionales.
-
-                                        Más adelante podremos preguntar si ese importe será cambio
-                                        o abono a crédito.
-                                    </div>
-
-                                    <div class="flex justify-between border-t pt-2">
-                                        <span class="font-bold">
-                                            Cambio:
-                                        </span>
-
-                                        <strong class="text-emerald-600">
-                                            {{ formatCurrency(changeAmount) }}
-                                        </strong>
-                                    </div>
-
-                                </template>
-
-                            </div>
-
-                            <!-- ========================= -->
-                            <!-- PÚBLICO GENERAL SIN COMPLETAR -->
-                            <!-- ========================= -->
-                            <div
-                                v-else-if="isGeneralPublic"
-                                class="text-xs text-amber-700 dark:text-amber-400 space-y-1"
-                            >
-
-                                <div class="flex items-center gap-1 font-bold text-sm">
-                                    <i class="pi pi-exclamation-triangle"></i>
-                                    <span>Pago incompleto</span>
-                                </div>
-
-                                <p>
-                                    El cliente
-                                    <strong>Público General</strong>
-                                    debe liquidar el total.
-
-                                </p>
-
-                                <div class="flex justify-between mt-2">
-                                    <span>Total:</span>
-                                    <strong>{{ formatCurrency(amountDue) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Recibido:</span>
-                                    <strong>{{ formatCurrency(paid) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Faltante:</span>
-                                    <strong class="text-red-600">
-                                        {{ formatCurrency(missingAmount) }}
-                                    </strong>
-                                </div>
-
-                            </div>
-
-                            <!-- ========================= -->
-                            <!-- CLIENTE CON CRÉDITO -->
-                            <!-- ========================= -->
-                            <div
-                                v-else-if="hasEnoughCredit"
-                                class="text-xs text-blue-700 dark:text-blue-400 space-y-2"
-                            >
-
-                                <div class="flex items-center gap-1 font-bold text-sm">
-                                    <i class="pi pi-credit-card"></i>
-                                    <span>Venta a crédito</span>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Total:</span>
-                                    <strong>{{ formatCurrency(amountDue) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Recibido:</span>
-                                    <strong>{{ formatCurrency(paid) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Se cargará a crédito:</span>
-                                    <strong class="text-blue-700">
-                                        {{ formatCurrency(missingAmount) }}
-                                    </strong>
-                                </div>
-
-                            </div>
-
-                            <!-- ========================= -->
-                            <!-- CRÉDITO INSUFICIENTE -->
-                            <!-- ========================= -->
-                            <div
-                                v-else
-                                class="text-xs text-red-700 dark:text-red-400 space-y-2"
-                            >
-
-                                <div class="flex items-center gap-1 font-bold text-sm">
-                                    <i class="pi pi-times-circle"></i>
-                                    <span>Crédito insuficiente</span>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Total:</span>
-                                    <strong>{{ formatCurrency(amountDue) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Recibido:</span>
-                                    <strong>{{ formatCurrency(paid) }}</strong>
-                                </div>
-
-                                <div class="flex justify-between">
-                                    <span>Faltante:</span>
-                                    <strong class="text-red-600">
-                                        {{ formatCurrency(missingAmount) }}
-                                    </strong>
-                                </div>
-
-                            </div>
-
-                        </div>
                     </div>
                     <div
                         class="shrink-0 p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
                     >
-                        <button
+                        <!-- <button
                             @click="finishSale"
                             :disabled="!canProcessSale"
                             class="w-full font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all"
@@ -1917,11 +1650,463 @@ const printTicket = (saleData) => {
                         >
                             <i :class="canProcessSale ? 'pi pi-check-circle' : 'pi pi-lock'"></i>
                             <span>{{ canProcessSale ? 'Finalizar venta' : 'Completar datos de pago' }}</span>
+                        </button> -->
+                        <button
+                            @click="openPaymentDialog"
+                            :disabled="cart.length === 0 || !isRegisterOpen"
+                            class="w-full font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all"
+                            :class="cart.length > 0 && isRegisterOpen
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-md'
+                                : 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-700'"
+                        >
+                            <i
+                                :class="cart.length > 0 && isRegisterOpen
+                                    ? 'pi pi-dollar'
+                                    : 'pi pi-lock'"
+                            ></i>
+
+                            <span>
+                                Finalizar venta
+                            </span>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
+        <!-- ===================================================== -->
+        <!-- DIALOG DE COBRO -->
+        <!-- ===================================================== -->
+
+        <Dialog
+            v-model:visible="showPaymentDialog"
+            modal
+            header="Cobrar venta"
+            :style="{ width: '500px' }"
+            :breakpoints="{
+                '960px': '70vw',
+                '640px': '90vw'
+            }"
+            :draggable="false"
+        >
+            <div class="space-y-5">
+
+                <!-- ===================================== -->
+                <!-- RESUMEN DE VENTA -->
+                <!-- ===================================== -->
+
+                <div
+                    class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                >
+                    <div class="flex justify-between items-center">
+
+                        <div>
+                            <p class="text-xs text-slate-500">
+                                Total de la venta
+                            </p>
+
+                            <p class="text-3xl font-black text-emerald-600">
+                                {{ formatCurrency(amountDue) }}
+                            </p>
+                        </div>
+
+                        <div class="text-right">
+                            <p class="text-xs text-slate-500">
+                                Artículos
+                            </p>
+
+                            <p class="font-bold">
+                                {{ totalItemsInCart }}
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+
+
+                <!-- ===================================== -->
+                <!-- CLIENTE -->
+                <!-- ===================================== -->
+
+                <div>
+                    <label class="text-sm font-semibold block mb-2">
+                        Cliente
+                    </label>
+
+                    <Select
+                        v-model="selectedCustomer"
+                        :options="props.customers"
+                        optionLabel="name"
+                        optionValue="id"
+                        placeholder="Cliente público general"
+                        class="w-full"
+                        showClear
+                    />
+                </div>
+
+
+                <!-- ===================================== -->
+                <!-- CRÉDITO DISPONIBLE -->
+                <!-- ===================================== -->
+
+                <div
+                    v-if="!isGeneralPublic"
+                    class="p-3 rounded-xl"
+                >
+                    <Message
+                        severity="secondary"
+                        :closable="false"
+                    >
+                        Crédito disponible:
+
+                        <strong>
+                            {{ formatCurrency(availableCredit) }}
+                        </strong>
+                    </Message>
+                </div>
+
+
+                <!-- ===================================== -->
+                <!-- MÉTODO DE PAGO -->
+                <!-- ===================================== -->
+
+                <div>
+                    <label class="text-sm font-semibold block mb-2">
+                        Método de pago
+                    </label>
+
+                    <Select
+                        v-model="paymentMethod"
+                        :options="props.paymentMethods"
+                        optionLabel="name"
+                        optionValue="id"
+                        placeholder="Seleccionar método de pago"
+                        class="w-full"
+                    />
+                </div>
+
+
+                <!-- ===================================== -->
+                <!-- PAGO RECIBIDO -->
+                <!-- ===================================== -->
+
+                <div>
+                    <label class="text-sm font-semibold block mb-2">
+                        Pago recibido
+                    </label>
+
+                    <InputNumber
+                        v-model="paid"
+                        mode="decimal"
+                        :min="0"
+                        :minFractionDigits="2"
+                        :maxFractionDigits="2"
+                        :updateOnInput="true"
+                        class="w-full"
+                        placeholder="0.00"
+                        :disabled="!isCashPayment"
+                    />
+
+                    <small
+                        v-if="!isCashPayment"
+                        class="text-slate-500"
+                    >
+                        Para este método el pago se considera por el total de la venta.
+                    </small>
+                </div>
+
+
+                <!-- ===================================== -->
+                <!-- DESGLOSE DEL PAGO -->
+                <!-- ===================================== -->
+
+                <div
+                    v-if="paid !== null && paid !== '' && Number(paid) > 0"
+                    class="p-4 rounded-2xl border transition-all"
+                    :class="{
+                        'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800':
+                            Number(paid) >= Number(amountDue),
+
+                        'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800':
+                            Number(paid) < Number(amountDue) && isGeneralPublic,
+
+                        'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800':
+                            Number(paid) < Number(amountDue) &&
+                            !isGeneralPublic &&
+                            hasEnoughCredit,
+
+                        'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800':
+                            Number(paid) < Number(amountDue) &&
+                            !isGeneralPublic &&
+                            !hasEnoughCredit
+                    }"
+                >
+
+                    <!-- ================================= -->
+                    <!-- PAGO COMPLETO -->
+                    <!-- ================================= -->
+
+                    <div
+                        v-if="Number(paid) >= Number(amountDue)"
+                        class="space-y-2 text-sm"
+                    >
+
+                        <div class="flex justify-between">
+                            <span>Total:</span>
+
+                            <strong>
+                                {{ formatCurrency(amountDue) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Recibido:</span>
+
+                            <strong>
+                                {{ formatCurrency(paid) }}
+                            </strong>
+                        </div>
+
+
+                        <!-- PÚBLICO GENERAL -->
+
+                        <template v-if="isGeneralPublic">
+
+                            <div
+                                class="flex justify-between border-t pt-2"
+                            >
+                                <span class="font-bold">
+                                    Cambio:
+                                </span>
+
+                                <strong class="text-emerald-600 text-lg">
+                                    {{ formatCurrency(changeAmount) }}
+                                </strong>
+                            </div>
+
+                        </template>
+
+
+                        <!-- CLIENTE REGISTRADO -->
+
+                        <template v-else>
+
+                            <div
+                                v-if="excessPayment > 0"
+                                class="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-700"
+                            >
+                                <i class="pi pi-info-circle mr-1"></i>
+
+                                El cliente entregó
+                                <strong>
+                                    {{ formatCurrency(excessPayment) }}
+                                </strong>
+                                adicionales.
+
+                                <div class="text-xs mt-1">
+                                    Este importe actualmente se considera
+                                    como abono a crédito.
+                                </div>
+                            </div>
+
+                            <div
+                                class="flex justify-between border-t pt-2"
+                            >
+                                <span class="font-bold">
+                                    Cambio:
+                                </span>
+
+                                <strong class="text-emerald-600 text-lg">
+                                    {{ formatCurrency(changeAmount) }}
+                                </strong>
+                            </div>
+
+                        </template>
+
+                    </div>
+
+
+                    <!-- ================================= -->
+                    <!-- PÚBLICO GENERAL - PAGO INCOMPLETO -->
+                    <!-- ================================= -->
+
+                    <div
+                        v-else-if="isGeneralPublic"
+                        class="text-sm text-amber-700 dark:text-amber-400 space-y-2"
+                    >
+
+                        <div class="flex items-center gap-2 font-bold">
+                            <i class="pi pi-exclamation-triangle"></i>
+
+                            <span>
+                                Pago incompleto
+                            </span>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Total:</span>
+
+                            <strong>
+                                {{ formatCurrency(amountDue) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Recibido:</span>
+
+                            <strong>
+                                {{ formatCurrency(paid) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Faltante:</span>
+
+                            <strong class="text-red-600">
+                                {{ formatCurrency(missingAmount) }}
+                            </strong>
+                        </div>
+
+                        <p class="text-xs">
+                            El cliente Público General debe liquidar
+                            el total de la compra.
+                        </p>
+
+                    </div>
+
+
+                    <!-- ================================= -->
+                    <!-- CLIENTE CON CRÉDITO -->
+                    <!-- ================================= -->
+
+                    <div
+                        v-else-if="hasEnoughCredit"
+                        class="text-sm text-blue-700 dark:text-blue-400 space-y-2"
+                    >
+
+                        <div class="flex items-center gap-2 font-bold">
+                            <i class="pi pi-credit-card"></i>
+
+                            <span>
+                                Venta a crédito
+                            </span>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Total:</span>
+
+                            <strong>
+                                {{ formatCurrency(amountDue) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Recibido:</span>
+
+                            <strong>
+                                {{ formatCurrency(paid) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between border-t pt-2">
+                            <span>
+                                Se cargará a crédito:
+                            </span>
+
+                            <strong class="text-blue-700">
+                                {{ formatCurrency(missingAmount) }}
+                            </strong>
+                        </div>
+
+                    </div>
+
+
+                    <!-- ================================= -->
+                    <!-- CRÉDITO INSUFICIENTE -->
+                    <!-- ================================= -->
+
+                    <div
+                        v-else
+                        class="text-sm text-red-700 dark:text-red-400 space-y-2"
+                    >
+
+                        <div class="flex items-center gap-2 font-bold">
+                            <i class="pi pi-times-circle"></i>
+
+                            <span>
+                                Crédito insuficiente
+                            </span>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Total:</span>
+
+                            <strong>
+                                {{ formatCurrency(amountDue) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Recibido:</span>
+
+                            <strong>
+                                {{ formatCurrency(paid) }}
+                            </strong>
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span>Faltante:</span>
+
+                            <strong class="text-red-600">
+                                {{ formatCurrency(missingAmount) }}
+                            </strong>
+                        </div>
+
+                        <p class="text-xs">
+                            El cliente no tiene suficiente crédito
+                            disponible para cubrir la diferencia.
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- ===================================== -->
+            <!-- FOOTER -->
+            <!-- ===================================== -->
+
+            <template #footer>
+
+                <div class="flex justify-between gap-3 w-full">
+
+                    <Button
+                        label="Cancelar"
+                        severity="secondary"
+                        outlined
+                        @click="showPaymentDialog = false"
+                    />
+
+                    <Button
+                        :label="canProcessSale
+                            ? 'Confirmar venta'
+                            : 'Completar pago'"
+                        :icon="canProcessSale
+                            ? 'pi pi-check'
+                            : 'pi pi-lock'"
+                        :disabled="!canProcessSale"
+                        :severity="canProcessSale
+                            ? 'success'
+                            : 'secondary'"
+                        @click="finishSale"
+                    />
+
+                </div>
+
+            </template>
+
+        </Dialog>
         <Dialog
             v-model:visible="showQuickCreateModal"
             modal
