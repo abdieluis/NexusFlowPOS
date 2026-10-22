@@ -190,26 +190,64 @@ const applyWeightToCartItem = (itemId) => {
     }
 };
 
-const addSelectedUnit = (unit)=>{
-    if(!currentTransaction.value){
+const addSelectedUnit = (unit) => {
+    if (!currentTransaction.value) {
         return;
     }
     const product = selectedProduct.value;
-    currentTransaction.value.cart.push({
-        id: crypto.randomUUID(),
-        product_id: product.id,
-        product_variant_id: unit.product_variant_id ?? null,
-        product_unit_id: unit.id,
-        sale_type_id: unit.sale_type_id,
-        sale_type: unit.sale_type,
-        conversion_factor: unit.conversion_factor,
-        name: product.name,
-        quantity:1,
-        price:Number(unit.price),
-        tax:product.tax
-    });
-    showUnitSelector.value=false;
+    const productId = product.id;
+    const variantId = unit.product_variant_id ?? null;
+    const unitId = unit.id;
+    const itemPrice = Number(unit.price);
+
+    // Buscar si ya existe el producto con esta unidad específica en el carrito
+    const existingItem = currentTransaction.value.cart.find(item => 
+        item.product_id === productId &&
+        item.product_variant_id === variantId &&
+        item.product_unit_id === unitId &&
+        Number(item.price) === itemPrice
+    );
+
+    if (existingItem) {
+        existingItem.quantity += 1;
+    } else {
+        currentTransaction.value.cart.push({
+            id: crypto.randomUUID(),
+            product_id: productId,
+            product_variant_id: variantId,
+            product_unit_id: unitId,
+            sale_type_id: unit.sale_type_id,
+            sale_type: unit.sale_type,
+            conversion_factor: unit.conversion_factor,
+            name: product.name,
+            quantity: 1,
+            price: itemPrice,
+            tax: product.tax
+        });
+    }
+    showUnitSelector.value = false;
 };
+
+// const addSelectedUnit = (unit)=>{
+//     if(!currentTransaction.value){
+//         return;
+//     }
+//     const product = selectedProduct.value;
+//     currentTransaction.value.cart.push({
+//         id: crypto.randomUUID(),
+//         product_id: product.id,
+//         product_variant_id: unit.product_variant_id ?? null,
+//         product_unit_id: unit.id,
+//         sale_type_id: unit.sale_type_id,
+//         sale_type: unit.sale_type,
+//         conversion_factor: unit.conversion_factor,
+//         name: product.name,
+//         quantity:1,
+//         price:Number(unit.price),
+//         tax:product.tax
+//     });
+//     showUnitSelector.value=false;
+// };
 // Variable que nos dirá si la caja está abierta (true / false)
 const isRegisterOpen = computed(() => !!props.activeRegister);
 
@@ -326,32 +364,23 @@ const filteredProducts = computed(() => {
 const subtotal = computed(() => {
     return cart.value.reduce((sum, item) => {
         return sum + (
-            Number(item.price) * item.quantity
+            Number(item.price || 0) *
+            Number(item.quantity || 0)
         );
     }, 0);
 });
 
-const totalTax = computed(() => {
-
-    return cart.value.reduce((sum, item) => {
-        const taxPercentage = item.tax?.percentage
-            ? Number(item.tax.percentage)
-            : 8.5;
-        return sum + (
-            Number(item.price) *
-            item.quantity *
-            (taxPercentage / 100)
-        );
-    }, 0);
-
-});
+const totalTax = computed(() => 0);
 
 const amountDue = computed(() => {
-    return subtotal.value + totalTax.value;
+    return subtotal.value;
 });
 
 const totalItemsInCart = computed(() => {
-    return cart.value.reduce((sum, item) => sum + item.quantity, 0);
+    return cart.value.reduce(
+        (sum, item) => sum + Number(item.quantity || 0),
+        0
+    );
 });
 
 const selectProduct = (product)=>{
@@ -507,34 +536,70 @@ const addUnitToCart = (product, unit)=>{
 // };
 
 // --- ACCIONES DEL CARRITO ---
-const addToCart = (product)=>{
+const addToCart = (product) => {
     const defaultUnit = product.product_units?.find(
         u => Number(u.is_default) === 1
     );
 
-    currentTransaction.value.cart.push({
-        id: crypto.randomUUID(),
-        product_id: product.id,
-        product_variant_id:
-            product.product_variant_id ?? null,
-        product_unit_id:
-            defaultUnit?.id ?? null,
-        sale_type_id:
-            defaultUnit?.sale_type_id ?? null,
-        conversion_factor:
-            defaultUnit?.conversion_factor ?? 1,
-        name:
-            product.name,
-        quantity:1,
-        price:
-            Number(
-                defaultUnit?.price ??
-                product.price
-            ),
-        tax:
-            product.tax
-    });
+    const productId = product.id;
+    const variantId = product.product_variant_id ?? null;
+    const unitId = defaultUnit?.id ?? null;
+    const itemPrice = Number(defaultUnit?.price ?? product.price);
+
+    // Buscar si ya existe el producto con la misma unidad en el carrito
+    const existingItem = currentTransaction.value.cart.find(item => 
+        item.product_id === productId &&
+        item.product_variant_id === variantId &&
+        item.product_unit_id === unitId &&
+        Number(item.price) === itemPrice
+    );
+
+    if (existingItem) {
+        existingItem.quantity += 1;
+    } else {
+        currentTransaction.value.cart.push({
+            id: crypto.randomUUID(),
+            product_id: productId,
+            product_variant_id: variantId,
+            product_unit_id: unitId,
+            sale_type_id: defaultUnit?.sale_type_id ?? null,
+            conversion_factor: defaultUnit?.conversion_factor ?? 1,
+            name: product.name,
+            quantity: 1,
+            price: itemPrice,
+            tax: product.tax
+        });
+    }
 };
+
+// const addToCart = (product)=>{
+//     const defaultUnit = product.product_units?.find(
+//         u => Number(u.is_default) === 1
+//     );
+
+//     currentTransaction.value.cart.push({
+//         id: crypto.randomUUID(),
+//         product_id: product.id,
+//         product_variant_id:
+//             product.product_variant_id ?? null,
+//         product_unit_id:
+//             defaultUnit?.id ?? null,
+//         sale_type_id:
+//             defaultUnit?.sale_type_id ?? null,
+//         conversion_factor:
+//             defaultUnit?.conversion_factor ?? 1,
+//         name:
+//             product.name,
+//         quantity:1,
+//         price:
+//             Number(
+//                 defaultUnit?.price ??
+//                 product.price
+//             ),
+//         tax:
+//             product.tax
+//     });
+// };
 // const addToCart = (product, unit = null) => {
 
 //     const existingItem = cart.value.find(
@@ -883,6 +948,31 @@ const hasSuggestedRounding = computed(() => {
     return Number(suggestedTotal.value) !== Number(amountDue.value);
 });
 
+const updateProductsStock = (soldItems) => {
+    productsList.value = productsList.value.map(product => {
+        const soldQuantity = soldItems
+            .filter(item => Number(item.product_id) === Number(product.id))
+            .reduce((sum, item) => {
+                const quantity = Number(item.quantity) || 0;
+                const factor = Number(item.conversion_factor ?? 1);
+
+                return sum + (quantity * factor);
+            }, 0);
+
+        if (soldQuantity <= 0) {
+            return product;
+        }
+
+        return {
+            ...product,
+            stock: Math.max(
+                0,
+                Number(product.stock ?? 0) - soldQuantity
+            )
+        };
+    });
+};
+
 // --- FINALIZAR Y REGISTRAR VENTA ---
 const finishSale = async () => {
 
@@ -912,13 +1002,14 @@ const finishSale = async () => {
         // 1. Guardar la copia de los datos actuales de la venta antes de vaciar
         const saleData = {
             items: cart.value.map(item => ({
-                name:item.name,
+                name: item.name,
                 product_id: item.product_id,
-                product_unit_id: item.product_unit_id,
-                sale_type_id: item.sale_type_id,
-                quantity: item.quantity,
-                price: item.price,
-                subtotal:item.price * item.quantity
+                product_variant_id: item.product_variant_id ?? null,
+                product_unit_id: item.product_unit_id ?? null,
+                sale_type_id: item.sale_type_id ?? null,
+                quantity: Number(item.quantity),
+                price: Number(item.price),
+                subtotal: Number(item.price) * Number(item.quantity)
             })),
             subtotal: subtotal.value,
             tax: totalTax.value,
@@ -941,6 +1032,8 @@ const finishSale = async () => {
             payment_method_id:saleData.paymentMethod,
             credit_payment: creditUsed.value
         });
+
+        updateProductsStock(saleData.items);
 
         const customer = props.customers.find(c=>c.id===selectedCustomer.value);
 
@@ -1113,8 +1206,47 @@ const canProcessSale = computed(() => {
     return payment >= amountDue.value;
 });
 
+
+const groupTicketItems = (items) => {
+    const grouped = new Map();
+
+    items.forEach((item) => {
+        // La unidad y la variante también importan:
+        // un paquete no debe mezclarse con una pieza.
+        const key = [
+            item.product_id ?? '',
+            item.product_variant_id ?? '',
+            item.product_unit_id ?? '',
+            item.sale_type_id ?? '',
+            Number(item.price).toFixed(2),
+            item.name
+        ].join('|');
+
+        if (grouped.has(key)) {
+            grouped.get(key).quantity += Number(item.quantity) || 0;
+        } else {
+            grouped.set(key, {
+                ...item,
+                quantity: Number(item.quantity) || 0
+            });
+        }
+    });
+
+    return Array.from(grouped.values());
+};
+
 const printTicket = (saleData) => {
-    const { items, subtotal, tax, total, paid, change, paymentMethod, customer_name } = saleData;
+    const {
+        items,
+        subtotal,
+        total,
+        paid,
+        change,
+        paymentMethod,
+        customer_name
+    } = saleData;
+
+    const groupedItems = groupTicketItems(items);
 
     // Etiqueta legible del método de pago
     const methodLabel = props.paymentMethods.find(
@@ -1147,7 +1279,7 @@ const printTicket = (saleData) => {
         </style>
     </head>
     <body>
-        <h2>NEXUSFLOW POS</h2>
+        <h2 style="text-align: center;">NEXUSFLOW POS</h2>
         <div class="center">
             Ticket de Venta<br>
             ${new Date().toLocaleString()}
@@ -1161,15 +1293,19 @@ const printTicket = (saleData) => {
                 </tr>
             </thead>
             <tbody>
-                ${items.map(item => `
+                
+                ${groupedItems.map(item => `
                     <tr>
                         <td colspan="2">${item.name}</td>
                     </tr>
                     <tr>
                         <td>${item.quantity} x ${formatCurrency(item.price)}</td>
-                        <td class="right">${formatCurrency(item.price * item.quantity)}</td>
+                        <td class="right">
+                            ${formatCurrency(item.price * item.quantity)}
+                        </td>
                     </tr>
                 `).join('')}
+
             </tbody>
         </table>
         <hr>
@@ -1177,10 +1313,6 @@ const printTicket = (saleData) => {
             <tr>
                 <td>Subtotal</td>
                 <td class="right">${formatCurrency(subtotal)}</td>
-            </tr>
-            <tr>
-                <td>IVA</td>
-                <td class="right">${formatCurrency(tax)}</td>
             </tr>
             <tr class="total-row">
                 <td>TOTAL</td>
@@ -1578,7 +1710,7 @@ const printTicket = (saleData) => {
 
                     <!-- FOOTER -->
 
-                    <div
+                    <!-- <div
                         class="border-t border-slate-200 dark:border-slate-800 p-5 space-y-4 bg-white dark:bg-slate-900 overflow-y-auto max-h-[35vh]"
                     >
 
@@ -1589,10 +1721,7 @@ const printTicket = (saleData) => {
                                 <span>{{ formatCurrency(subtotal) }}</span>
                             </div>
 
-                            <div class="flex justify-between">
-                                <span>IVA</span>
-                                <span>{{ formatCurrency(totalTax) }}</span>
-                            </div>
+                            
 
                             <div class="flex justify-between border-t pt-3">
                                 <span class="font-bold text-lg">
@@ -1636,7 +1765,7 @@ const printTicket = (saleData) => {
                                 <span> Abrir cajón</span>
                             </button>
                         </div>
-                    </div>
+                    </div> -->
                     <div
                         class="shrink-0 p-5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
                     >
